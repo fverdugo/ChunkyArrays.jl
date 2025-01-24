@@ -2262,20 +2262,55 @@ function sparse_diag_matrix(::Type{T},d::PVector,shape) where T
     psparse(T,I,J,V,row_partition,col_partition;assembled=true) |> fetch
 end
 
-function rap(R,A,P;reuse=Val(false))
-    Ac = R*A*P
+### OLD ###
+# function rap(R,A,P;reuse=Val(false))
+#     Ac = R*A*P
+#     if val_parameter(reuse)
+#         return Ac, nothing
+#     end
+#     Ac
+# end
+
+### NEW ###
+function rap(R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false))
+    Ac, cache = spmmm(R,A,P)
     if val_parameter(reuse)
-        return Ac, nothing
+        return Ac, cache
     end
     Ac
 end
 
-function rap!(Ac,R,A,P,cache)
-    # TODO improve performance
-    tmp = R*A*P
-    copyto!(Ac,tmp)
+### OLD ###
+# function rap!(Ac,R,A,P,cache)
+#     # TODO improve performance
+#     tmp = R*A*P
+#     copyto!(Ac,tmp)
+#     Ac
+# end
+
+### NEW ###
+function rap!(Ac::PSparseMatrix,R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix,cache)
+    spmmm!(Ac,R,A,P,cache)
     Ac
 end
+
+### NEW ###
+function rap(Pt::Transpose{Tv,<:PSparseMatrix} where Tv, A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false))
+    spmtmm(Pt.parent,A,P;reuse=reuse)
+end
+
+function rap!(Ac::PSparseMatrix,Pt::Transpose{Tv,<:PSparseMatrix} where Tv, A::PSparseMatrix,P::PSparseMatrix,cache)
+    spmtmm!(Ac,Pt.parent,A,P,cache)
+end
+
+function rap(A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false))
+    spmtmm(P,A,P;reuse=reuse)
+end
+
+function rap!(Ac::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix,cache)
+    spmtmm!(Ac,A,P,cache)
+end
+### End NEW ###
 
 function spmm(A,B;reuse=Val(false))
     C = A*B
@@ -2290,28 +2325,82 @@ function spmm!(C,A,B,state)
     C
 end
 
+### OLD ###
+# function spmm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
+#     # TODO latency hiding
+#     @assert A.assembled
+#     @assert B.assembled
+#     col_partition = partition(axes(A,2))
+#     C,cacheC = consistent(B,col_partition;reuse=true) |> fetch
+#     D_partition,cacheD = map((args...)->spmm(args...;reuse=true),partition(A),partition(C)) |> tuple_of_arrays
+#     assembled = true
+#     D = PSparseMatrix(D_partition,partition(axes(A,1)),partition(axes(C,2)),assembled)
+#     if val_parameter(reuse)
+#         cache = (C,cacheC,cacheD)
+#         return D,cache
+#     end
+#     D
+# end
+
+# function spmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+#     (C,cacheC,cacheD)= cache
+#     consistent!(C,B,cacheC) |> wait
+#     map(spmm!,partition(D),partition(A),partition(C),cacheD)
+#     D
+# end
+
+### NEW ###
 function spmm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
-    # TODO latency hiding
-    @assert A.assembled
-    @assert B.assembled
-    col_partition = partition(axes(A,2))
-    C,cacheC = consistent(B,col_partition;reuse=true) |> fetch
-    D_partition,cacheD = map((args...)->spmm(args...;reuse=true),partition(A),partition(C)) |> tuple_of_arrays
-    assembled = true
-    D = PSparseMatrix(D_partition,partition(axes(A,1)),partition(axes(C,2)),assembled)
-    if val_parameter(reuse)
-        cache = (C,cacheC,cacheD)
-        return D,cache
+    t = consistent(B,partition(axes(A,2)),reuse=true)
+    A_own_own = own_own_values(A)
+    A_own_ghost = own_ghost_values(A)
+
+    C_own_own_1 = map(*,A_own_own,own_own_values(B))
+    
+    # Wait for consistent
+    B2, cacheB2 = fetch(t)
+    C_own_ghost_1 = map(*,A_own_own,own_ghost_values(B2))
+    C_own_own_2 = map(*,A_own_ghost,ghost_own_values(B2))
+    C_own_ghost_2 = map(*,A_own_ghost,ghost_ghost_values(B2))
+    
+    C_own_own = map(+, C_own_own_1, C_own_own_2)
+    C_own_ghost = map(+, C_own_ghost_1, C_own_ghost_2)
+    
+    Coo_cache = map(construct_spmm_cache, C_own_own)
+    Cog_cache = map(construct_spmm_cache, C_own_ghost)
+    
+    C_values = map(C_own_own,C_own_ghost,partition(A),partition(B2)) do own_own,own_ghost,A_part,B_part
+        ghost_own = similar(own_own,0,size(own_own,2))
+        ghost_ghost = similar(own_own,0,size(own_ghost,2))
+        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+        split_matrix(blocks,A_part.row_permutation,B_part.col_permutation)
     end
-    D
+    
+    C = PSparseMatrix(C_values,partition(axes(A,1)),partition(axes(B2,2)),true)
+    if val_parameter(reuse)
+        cache = (B2,cacheB2,(Coo_cache,Cog_cache))
+        return C,cache
+    end
+    C
 end
 
-function spmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
-    (C,cacheC,cacheD)= cache
-    consistent!(C,B,cacheC) |> wait
-    map(spmm!,partition(D),partition(A),partition(C),cacheD)
-    D
+function spmm!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+    (B2,cacheB2,(Coo_cache,Cog_cache)) = cache
+    t = consistent!(B2,B,cacheB2)
+    A_own_own = own_own_values(A)
+    A_own_ghost = own_ghost_values(A)
+    C_own_own = own_own_values(C)
+    C_own_ghost = own_ghost_values(C)
+
+    map(mul!, C_own_own, A_own_own, own_own_values(B),Coo_cache)
+    wait(t)
+    map(mul!, C_own_ghost, A_own_own, own_ghost_values(B2),Cog_cache)
+
+    map((C,A,B,cache) -> mul!(C,A,B,1,1,cache), C_own_own,A_own_ghost,ghost_own_values(B2),Coo_cache)
+    map((C,A,B,cache) -> mul!(C,A,B,1,1,cache), C_own_ghost,A_own_ghost,ghost_ghost_values(B2),Cog_cache)
+    C
 end
+### End NEW ###
 
 function spmtm(A,B;reuse=Val(false))
     C = transpose(A)*B
@@ -2326,27 +2415,99 @@ function spmtm!(C,A,B,cache)
     C
 end
 
+### OLD ###
+# function spmtm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
+#     # TODO latency hiding
+#     @assert A.assembled
+#     @assert B.assembled
+#     D_partition,cacheD = map((args...)->spmtm(args...;reuse=true),partition(A),partition(B)) |> tuple_of_arrays
+#     assembled = false
+#     D = PSparseMatrix(D_partition,partition(axes(A,2)),partition(axes(B,2)),assembled)
+#     C,cacheC = assemble(D;reuse=true) |> fetch
+#     if val_parameter(reuse)
+#         cache = (D,cacheC,cacheD)
+#         return C,cache
+#     end
+#     C
+# end
+
+# function spmtm!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+#     (D,cacheC,cacheD)= cache
+#     map(spmtm!,partition(D),partition(A),partition(B),cacheD)
+#     assemble!(C,D,cacheC) |> wait
+#     C
+# end
+
+### NEW ###
 function spmtm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
-    # TODO latency hiding
-    @assert A.assembled
-    @assert B.assembled
-    D_partition,cacheD = map((args...)->spmtm(args...;reuse=true),partition(A),partition(B)) |> tuple_of_arrays
+    Aoo = own_own_values(A)
+    Aog = own_ghost_values(A)
+    Boo = own_own_values(B)
+    Bog = own_ghost_values(B)
+
+    C1go = map((A,B)->transpose(A)*B,Aog,Boo)
+    C1gg = map((A,B)->transpose(A)*B,Aog,Bog)
+
+    C1_values = map(C1go, C1gg, partition(A), partition(B)) do ghost_own, ghost_ghost, A_part, B_part
+        own_own = similar(ghost_ghost, size(A_part.blocks.own_own, 2), size(B_part.blocks.own_own, 2))
+        own_ghost = similar(ghost_ghost, size(A_part.blocks.own_own, 2), size(B_part.blocks.own_ghost, 2))
+        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+        split_matrix(blocks,A_part.col_permutation,B_part.col_permutation)
+    end
+    
     assembled = false
-    D = PSparseMatrix(D_partition,partition(axes(A,2)),partition(axes(B,2)),assembled)
-    C,cacheC = assemble(D;reuse=true) |> fetch
+    C1_unassembled = PSparseMatrix(C1_values,partition(axes(A,2)),partition(axes(B,2)),assembled)
+    t = assemble(C1_unassembled,reuse=true)
+
+    C2oo = map((A,B)->transpose(A)*B,Aoo,Boo)
+    C2og = map((A,B)->transpose(A)*B,Aoo,Bog)
+
+    C2_values = map(C2oo, C2og, partition(A), partition(B)) do own_own, own_ghost, A_part, B_part
+        ghost_own = similar(own_own,0,size(own_own,2))
+        ghost_ghost = similar(own_own,0,size(own_ghost,2))
+        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+        split_matrix(blocks, A_part.col_permutation, B_part.col_permutation)
+    end
+
+    # No cache returned by SparseArrays, so this is a workaround. 
+    Coo_cache = map(construct_spmtm_cache, C2oo)
+    Cog_cache = map(construct_spmtm_cache, C2og)
+    Cgo_cache = map(construct_spmtm_cache, C1go)
+    Cgg_cache = map(construct_spmtm_cache, C1gg)
+
+    assembled = true
+    C2 = PSparseMatrix(C2_values,partition(axes(A,2)),partition(axes(B,2)),assembled)
+    C1, assemblyCache = fetch(t)
+    C, mergeCache = add(C1, C2)
+
     if val_parameter(reuse)
-        cache = (D,cacheC,cacheD)
+        sequential_caches = (Coo_cache,Cog_cache,Cgo_cache,Cgg_cache)
+        cache = (C1, C1_unassembled, assemblyCache, C2, mergeCache, sequential_caches)
         return C,cache
     end
     C
 end
 
 function spmtm!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
-    (D,cacheC,cacheD)= cache
-    map(spmtm!,partition(D),partition(A),partition(B),cacheD)
-    assemble!(C,D,cacheC) |> wait
+    C1, C1_unassembled, assemblyCache, C2, mergeCache, sequential_caches = cache
+    (Coo_cache,Cog_cache,Cgo_cache,Cgg_cache) = sequential_caches
+
+    Aoo = own_own_values(A)
+    Aog = own_ghost_values(A)
+    Boo = own_own_values(B)
+    Bog = own_ghost_values(B)
+
+    map((C,A,B,cache)->mul!(C,transpose(A),B,cache),ghost_own_values(C1_unassembled),Aog,Boo,Cgo_cache)
+    map((C,A,B,cache)->mul!(C,transpose(A),B,cache),ghost_ghost_values(C1_unassembled),Aog,Bog,Cgg_cache)
+        
+    t = assemble!(C1, C1_unassembled, assemblyCache)
+    map((C,A,B,cache)->mul!(C,transpose(A),B,cache),own_own_values(C2),Aoo,Boo,Coo_cache)
+    map((C,A,B,cache)->mul!(C,transpose(A),B,cache),own_ghost_values(C2),Aoo,Bog,Cog_cache)
+    wait(t)
+    add!(C, C1, C2, mergeCache)
     C
 end
+### End NEW ###
 
 function Base.:*(A::PSparseMatrix,B::PSparseMatrix)
     C = spmm(A,B)
@@ -2462,6 +2623,8 @@ function repartition(A::PSparseMatrix,new_rows,new_cols;reuse=Val(false))
     end
 end
 
+### NEW ###
+# Repartition that follows local data layout of type T (some sparse matrix format)
 function repartition(::Type{T},A::PSparseMatrix,new_rows,new_cols;reuse=Val(false)) where T
     @assert A.assembled "repartition on a sub-assembled matrix not implemented yet"
     function prepare_triplets(A_own_own,A_own_ghost,A_rows,A_cols)
@@ -2481,7 +2644,7 @@ function repartition(::Type{T},A::PSparseMatrix,new_rows,new_cols;reuse=Val(fals
     A_rows = partition(axes(A,1))
     A_cols = partition(axes(A,2))
     I,J,V = map(prepare_triplets,A_own_own,A_own_ghost,A_rows,A_cols) |> tuple_of_arrays
-    # TODO this one does not preserve the local storage layout of A
+
     t = psparse(T,I,J,V,new_rows,new_cols;reuse=true)
     @fake_async begin
         B,cacheB = fetch(t)
@@ -2494,6 +2657,8 @@ function repartition(::Type{T},A::PSparseMatrix,new_rows,new_cols;reuse=Val(fals
     end
 end
 
+### NEW ###
+# Repartition that follows local data layout by using sparse function "sparse"
 function repartition(sparse,A::PSparseMatrix,new_rows,new_cols;reuse=Val(false))
     @assert A.assembled "repartition on a sub-assembled matrix not implemented yet"
     function prepare_triplets(A_own_own,A_own_ghost,A_rows,A_cols)
@@ -2595,6 +2760,8 @@ function centralize(A::PSparseMatrix)
     own_own_values(a_in_main) |> multicast |> getany
 end
 
+### NEW ### 
+# Centralize function with local storage layout of type T (some sparse matrix format)
 function centralize(::Type{T},A::PSparseMatrix) where T
     m,n = size(A)
     ranks = linear_indices(partition(A))
@@ -2604,6 +2771,8 @@ function centralize(::Type{T},A::PSparseMatrix) where T
     own_own_values(a_in_main) |> multicast |> getany
 end
 
+### NEW ### 
+# Centralize function that follows local data layout resulting from "sparse"
 function centralize(sparse,A::PSparseMatrix)
     m,n = size(A)
     ranks = linear_indices(partition(A))
@@ -2848,4 +3017,318 @@ function laplace_matrix(nodes_per_dir,parts_per_dir,ranks)
     node_partition = uniform_partition(ranks,parts_per_dir,nodes_per_dir)
     I,J,V = map(setup,node_partition) |> tuple_of_arrays
     A = psparse(sparse,I,J,V,node_partition,node_partition) |> fetch
+end
+
+
+################ NEW ################
+
+# Locally transpose SplitMatrix
+function explicit_transpose(A::AbstractSplitMatrix)
+    own_own = halfperm(A.blocks.own_own)
+    own_ghost = halfperm(A.blocks.ghost_own)
+    ghost_own = halfperm(A.blocks.own_ghost)
+    ghost_ghost = halfperm(A.blocks.ghost_ghost)
+    blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+    split_matrix(blocks,A.col_permutation,A.row_permutation)
+end
+
+# Redistribute PSparseMatrix, returns unassembled transpose and a assmbly task when reuse is true, or only the assembly task otherwise
+function explicit_transpose(A::PSparseMatrix;reuse=false)
+    mats = map(explicit_transpose,partition(A))
+    rows, cols = axes(A)
+    B = PSparseMatrix(mats,partition(cols),partition(rows),false)
+    t = assemble(B,reuse=reuse)
+    if val_parameter(reuse)
+        B,t
+    else
+        t
+    end
+end
+
+function explicit_transpose!(B::AbstractSplitMatrix,A::AbstractSplitMatrix)
+    halfperm!(B.blocks.own_own,A.blocks.own_own)
+    halfperm!(B.blocks.own_ghost,A.blocks.ghost_own)
+    halfperm!(B.blocks.ghost_own,A.blocks.own_ghost)
+    halfperm!(B.blocks.ghost_ghost,A.blocks.ghost_ghost)
+end
+
+function explicit_transpose!(B::PSparseMatrix,B_local::PSparseMatrix,A::PSparseMatrix,cache)
+    map(explicit_transpose!,partition(B_local),partition(A))
+    assemble!(B, B_local, cache)
+end
+
+function add(A::PSparseMatrix,B::PSparseMatrix)
+    function add_own_own(A,B)
+        C = A+B
+        # reuse IA/IB for cache
+        KA = precompute_nzindex(C,A)
+        KB = precompute_nzindex(C,B)
+        C,(KA,KB)
+    end
+    function add_own_ghost(own_ghost_A, own_ghost_B, colsA, colsB, cols)
+        # Minimize allocated memory, but could be replaced with findnz(...)
+        iA,jA = find_indices(own_ghost_A) # local nonzero
+        vA = nonzeros(own_ghost_A)
+        iB,jB = find_indices(own_ghost_B) # local nonzero
+        vB = nonzeros(own_ghost_B)
+        jC = zeros(eltype(jA), (length(jA) + length(jB)))
+        ghostA_to_global = ghost_to_global(colsA)
+        ghostB_to_global = ghost_to_global(colsB)
+        global_to_ghostC = global_to_ghost(cols)
+        l = zero(eltype(jA))
+        for k in eachindex(jA)
+            l += 1
+            j = jA[k]
+            jC[l] = global_to_ghostC[ghostA_to_global[j]]
+            jA[k] = jC[l]
+        end
+        for k in eachindex(jB)
+            l += 1
+            j = jB[k]
+            jC[l] = global_to_ghostC[ghostB_to_global[j]]
+            jB[k] = jC[l]
+        end
+        own_ghost = compresscoo(typeof(own_ghost_A), vcat(iA, iB), jC, vcat(vA, vB), size(own_ghost_A, 1), ghost_length(cols))
+        # reuse auxiliary iA, iB arrays as caches
+        precompute_nzindex!(iA,own_ghost,iA,jA)
+        precompute_nzindex!(iB,own_ghost,iB,jB)
+        own_ghost, (iA, iB)
+    end
+    function _add(A,B)
+        colsA = partition(axes(A,2))
+        colsB = partition(axes(B,2))
+        J = map(ghost_to_global, colsB)
+        J_owner = map(ghost_to_owner, colsB)
+        cols = map(union_ghost, colsA, J, J_owner)
+        rows = partition(axes(A,1))
+        Coo, Koo = map(add_own_own, own_own_values(A), own_own_values(B)) |> tuple_of_arrays
+        Cog, Kog = map(add_own_ghost, own_ghost_values(A), own_ghost_values(B), colsA, colsB, cols) |> tuple_of_arrays
+        C_vals = map(Coo,Cog,rows,cols) do Coo, Cog, rows, cols
+            Cgo = similar(Coo, 0, size(Coo,2))
+            Cgg = similar(Coo, 0, size(Cog,2))
+            blocks = split_matrix_blocks(Coo, Cog, Cgo, Cgg)
+            split_matrix(blocks, local_permutation(rows), local_permutation(cols))
+        end
+        assembled = true
+        K = (Koo, Kog)
+        PSparseMatrix(C_vals,rows,cols,assembled), K
+    end
+    _add(A,B)
+end
+
+function add!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+    function add_blocks!(C, A, B, K)
+        K_A, K_B = K
+        sparse_matrix!(C, nonzeros(A), K_A)
+        sparse_matrix!(C, nonzeros(B), K_B, reset=false)
+    end
+    Koo, Kog = cache
+    map(add_blocks!, own_own_values(C), own_own_values(A), own_own_values(B), Koo)
+    map(add_blocks!, own_ghost_values(C), own_ghost_values(A), own_ghost_values(B), Kog)
+end
+
+# Interpret A as if its transpose is needed
+function spmtmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(false))
+    consistency_task = consistent(C, partition(axes(B,2)),reuse=true)
+    
+    Aoo = own_own_values(A)
+    Boo = own_own_values(B)
+    Cog = own_own_values(C)
+    
+    Aog = own_ghost_values(A)
+    Bog = own_ghost_values(B)
+    
+    Doo1, Doo_cache = map((A,B,C)->RAP(transpose(A),B,C), Aoo,Boo,Cog) |> tuple_of_arrays
+    Dgo1, Dgo_cache = map((A,B,C)->RAP(transpose(A),B,C), Aog,Boo,Cog) |> tuple_of_arrays
+    
+    # Collect ghost rows from P before continuing
+    C2, consistencyCache = fetch(consistency_task)
+
+    Cog2 = own_ghost_values(C2)
+    Cgo = ghost_own_values(C2)
+    Cgg = ghost_ghost_values(C2)
+
+    Dgo2, Dgo_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Bog,Cgo,Dgo_cache) |> tuple_of_arrays
+    Dog1, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Boo,Cog2,Dgo_cache) |> tuple_of_arrays
+    Dog2, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Bog,Cgg,Dog_cache) |> tuple_of_arrays        
+
+    Dgo = map(+,Dgo1,Dgo2) # different sparsity patterns so not in-place.
+    Dog = map(+,Dog1,Dog2)
+
+    D1_values = map(Dgo, Dog, partition(C), partition(C2)) do ghost_own, ghost_ghost, C_part, C2_part
+        own_own = similar(ghost_ghost, size(C_part.blocks.own_own, 2), size(C2_part.blocks.own_own, 2))
+        own_ghost = similar(ghost_ghost, size(C_part.blocks.own_own, 2), size(C2_part.blocks.own_ghost, 2))
+        blocks = split_matrix_blocks(own_own, own_ghost, ghost_own, ghost_ghost)
+        split_matrix(blocks, C_part.col_permutation, C2_part.col_permutation)
+    end
+    D1_unassembled = PSparseMatrix(D1_values, partition(axes(C,2)), partition(axes(C2,2)), false)
+    assembly_task = assemble(D1_unassembled, reuse=true)
+
+    Dog1, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Boo,Cog2,Doo_cache) |> tuple_of_arrays
+    Doo2,Doo_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
+    Dog2,Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
+
+    Doo = map(+,Doo1,Doo2)
+    Dog = map(+,Dog1,Dog2)
+
+    Doo_cache_final = map((cache,D)->reduce_spmtmm_cache(cache,typeof(D)),Doo_cache,Doo)
+    Dog_cache_final = map((cache,D)->reduce_spmtmm_cache(cache,typeof(D)),Dog_cache,Dog)
+    Dgo_cache_final = map((cache,D)->reduce_spmtmm_cache(cache,typeof(D)),Dgo_cache,Dgo)
+    Dog_cache_final = map((cache,D)->reduce_spmtmm_cache(cache,typeof(D)),Dog_cache,Dog)
+
+    D2_values = map(Doo, Dog, partition(C2)) do own_own, own_ghost, C_part
+        ghost_own = similar(own_own,0,size(own_own, 2))
+        ghost_ghost = similar(own_ghost,0,size(own_ghost, 2))
+        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+        split_matrix(blocks, C_part.col_permutation, C_part.col_permutation)
+    end
+
+    D1, assemblyCache = fetch(assembly_task)
+    D2 = PSparseMatrix(D2_values, partition(axes(D1,1)), partition(axes(C2,2)), true)
+    D, mergeCache = add(D1, D2)
+    sequential_caches = (Doo_cache_final, Dog_cache_final, Dgo_cache_final, Dog_cache_final)
+    if val_parameter(reuse)
+        cache = (C2, consistencyCache, D1, D1_unassembled, assemblyCache, D2, mergeCache, sequential_caches)
+        return D,cache
+    end
+    D
+end
+
+function spmtmm(A::PSparseMatrix,P::PSparseMatrix;kwargs...)
+    spmtmm(transpose(P),A,P;kwargs...)
+end
+
+function spmtmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix,cache)
+    C2, consistencyCache, D1, D1_unassembled, assemblyCache, D2, mergeCache, sequential_caches = cache
+    Doo_cache, Dog_cache, Dgo_cache, Dgg_cache = sequential_caches
+    C2, consistencyCache, D1, D1_unassembled, assemblyCache, D2, mergeCache = cache
+    
+    consistency_task = consistent!(C2, C, consistencyCache)
+    Doo = own_own_values(D2)
+    Dog = own_ghost_values(D2)
+    Dgo = ghost_own_values(D1_unassembled)
+    Dgg = ghost_ghost_values(D1_unassembled)
+
+    Aoo = own_own_values(A)
+    Boo = own_own_values(B)
+    Coo = own_own_values(C)
+
+    Aog = own_ghost_values(A)
+    Bog = own_ghost_values(B)
+    
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Doo,Aoo,Boo,Coo,Doo_cache)
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dgo,Aog,Boo,Coo,Dgo_cache)
+    
+    # Collect ghost rows from P before continuing
+    wait(consistency_task)
+    Cog2 = own_ghost_values(C2)
+    Cgo = ghost_own_values(C2)
+    Cgg = ghost_ghost_values(C2)
+
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dgg,Aog,Boo,Cog2,Dgg_cache)
+
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dgo,Aog,Bog,Cgo,Dgo_cache)
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dgg,Aog,Bog,Cgg,Dgg_cache)
+
+    assembly_task = assemble!(D1, D1_unassembled, assemblyCache)
+    
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Doo,Aoo,Bog,Cgo,Doo_cache)
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dog,Aoo,Boo,Cog2,Dog_cache)
+    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dog,Aoo,Bog,Cgg,Dog_cache)
+    
+    wait(assembly_task)
+    add!(D, D1, D2, mergeCache)
+    D
+end
+
+function spmtmm!(C::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix,cache)
+    spmtmm!(C,P,A,P,cache)
+end
+
+function spmmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(false))
+    B2_task = consistent(B,partition(axes(A,2)),reuse=true)
+    Aoo = own_own_values(A)
+    Aog = own_ghost_values(A)
+    Boo = own_own_values(B)
+    Coo = own_own_values(C)
+
+    Doo1,Doo_cache = map(RAP,Aoo,Boo,Coo) |> tuple_of_arrays
+    B2, Bcache = fetch(B2_task)
+    C2_task = consistent(C,partition(axes(B2,2)),reuse=true)
+
+    Bog = own_ghost_values(B2)
+    Bgo = ghost_own_values(B2)
+    Bgg = ghost_ghost_values(B2)
+
+    Doo2,Doo_cache = map(RAP,Aog,Bgo,Coo,Doo_cache) |> tuple_of_arrays
+    Doo12 = map(+,Doo1,Doo2)
+
+    C2, Ccache = fetch(C2_task)
+  
+    Cog = own_ghost_values(C2)
+    Cgo = ghost_own_values(C2)
+    Cgg = ghost_ghost_values(C2)
+
+    Doo3,Doo_cache = map(RAP,Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
+    Doo4,Doo_cache = map(RAP,Aog,Bgg,Cgo,Doo_cache) |> tuple_of_arrays
+  
+    Doo34 = map(+,Doo3,Doo4)
+    Doo = map(+,Doo12,Doo34)
+  
+    Dog1,Dog_cache = map(RAP,Aoo,Boo,Cog) |> tuple_of_arrays
+    Dog2,Dog_cache = map(RAP,Aog,Bgo,Cog,Dog_cache) |> tuple_of_arrays
+    Dog3,Dog_cache = map(RAP,Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
+    Dog4,Dog_cache = map(RAP,Aog,Bgg,Cgg,Dog_cache) |> tuple_of_arrays
+
+    Dog12 = map(+,Dog1,Dog2)
+    Dog34 = map(+,Dog3,Dog4)
+    Dog = map(+,Dog12,Dog34)
+
+    D_values = map(Doo, Dog, partition(A),partition(C2)) do own_own, own_ghost, A_part,C_part
+        ghost_own = similar(own_own,0,size(own_own, 2))
+        ghost_ghost = similar(own_ghost,0,size(own_ghost, 2))
+        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+        split_matrix(blocks, A_part.row_permutation, C_part.col_permutation)
+    end
+
+    D = PSparseMatrix(D_values, partition(axes(A,1)), partition(axes(C2,2)), true)
+    if val_parameter(reuse)
+        cache = B2,Bcache,C2,Ccache,(Doo_cache,Dog_cache)
+        return D,cache
+    end
+    D
+end
+
+function spmmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix,cache)
+    B2,Bcache,C2,Ccache,sequential_caches = cache
+    Doo_cache, Dog_cache = sequential_caches
+    B2_task = consistent!(B2,B,Bcache)
+
+    Doo = own_own_values(D)
+    Dog = own_ghost_values(D)
+    Aoo = own_own_values(A)
+    Aog = own_ghost_values(A)
+    Boo = own_own_values(B)
+    Coo = own_own_values(C)
+    map(RAP!,Doo,Aoo,Boo,Coo,Doo_cache)
+    wait(B2_task)
+
+    C2_task = consistent!(C2,C,Ccache)
+    Bog = own_ghost_values(B2)
+    Bgo = ghost_own_values(B2)
+    Bgg = ghost_ghost_values(B2)
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aog,Bgo,Coo,Doo_cache)
+
+    wait(C2_task)
+    Cog = own_ghost_values(C2)
+    Cgo = ghost_own_values(C2)
+    Cgg = ghost_ghost_values(C2)
+
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aoo,Bog,Cgo,Doo_cache)
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aog,Bgg,Cgo,Doo_cache)
+    map(RAP!,Dog,Aoo,Boo,Cog,Dog_cache)
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aog,Bgo,Cog,Dog_cache)
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aoo,Bog,Cgg,Dog_cache)
+    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aog,Bgg,Cgg,Dog_cache)
+    D
 end

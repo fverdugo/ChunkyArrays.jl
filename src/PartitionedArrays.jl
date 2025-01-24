@@ -170,9 +170,17 @@ export spmv!
 export spmtv!
 export spmm
 export spmm!
+export spmmm
+export spmmm!
 export spmtm
 export spmtm!
+export spmtmm
+export spmtmm!
 export centralize
+export explicit_transpose
+export explicit_transpose!
+export add
+export add!
 include("p_sparse_matrix.jl")
 
 export BRange
@@ -195,5 +203,10 @@ export nullspace_linear_elasticity
 export nullspace_linear_elasticity!
 export near_nullspace_linear_elasticity
 include("gallery.jl")
+
+export RAP
+export RAP!
+export -,+
+include("sequential_implementations.jl")
 
 end # module

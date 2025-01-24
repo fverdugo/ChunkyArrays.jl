@@ -431,40 +431,6 @@ end
 #    A
 #end
 
-# Variants for findnz() that only allocates memory for the conversion of the pointer array to an index array.
-function findnz_minimal(A::SparseMatrixCSC)
-    J = ptr_to_coo(A.colptr)
-    rowvals(A),J,nonzeros(A)
-end
-function findnz_minimal(A::SparseMatrixCSR)
-    I = ptr_to_coo(A.rowptr)
-    I,colvals(A),nonzeros(A)
-end
-
-# Behaves like findnz, but without copying the values.
-function find_indices(A::SparseMatrixCSC)
-    I,J,_ = findnz_minimal(A)
-    copy(I),J
-end
-function find_indices(A::SparseMatrixCSR)
-    I,J,_ = findnz_minimal(A)
-    I,copy(J)
-end
-
-# Could be optimized by a two-way merge-like method when A is a guaranteed submatrix of C.
-function precompute_nzindex(C::AbstractSparseArray,A::AbstractSparseArray)
-    I,J,_ = findnz_minimal(A)
-    K = similar(I)
-    K .= 0
-    for (p,(i,j)) in enumerate(zip(I,J))
-        if i < 1 || j < 1
-            continue
-        end
-        K[p] = nzindex(C,i,j)
-    end
-    K
-end
-
 function precompute_nzindex(A,I,J)
     K = zeros(Int32,length(I))
     for (p,(i,j)) in enumerate(zip(I,J))
@@ -476,25 +442,14 @@ function precompute_nzindex(A,I,J)
     K
 end
 
-# Reuse I vector as K vector. 
-# function precompute_nzindex!(I,A,J)
-#     for (p,(i,j)) in enumerate(zip(I,J))
-#         if i < 1 || j < 1
-#             continue
-#         end
-#         I[p] = nzindex(A,i,j)
-#     end
-#     I
-# end
-
 function precompute_nzindex!(K, A, I, J)
     for (p, (i, j)) in enumerate(zip(I, J))
         if i < 1 || j < 1
             continue
         end
         K[p] = nzindex(A, i, j)
-  end
-
+    end
+end
 
 function sparse_matrix!(A,V,K;reset=true)
     if reset
@@ -509,7 +464,6 @@ function sparse_matrix!(A,V,K;reset=true)
     end
     A
 end
-
 
 # Notation
 # csrr: csr with repeated and unsorted columns
@@ -734,6 +688,43 @@ function spmv_csc!(b,x,colptr_A,rowval_A,nzval_A)
     b
 end
 
+################ NEW ################
+
+# Variants for findnz() that only allocates memory for the conversion of the pointer array to an index array.
+# Only use for read-only operations.
+function findnz_minimal(A::SparseMatrixCSC)
+    J = ptr_to_coo(A.colptr)
+    rowvals(A),J,nonzeros(A)
+end
+function findnz_minimal(A::SparseMatrixCSR)
+    I = ptr_to_coo(A.rowptr)
+    I,colvals(A),nonzeros(A)
+end
+
+# Behaves like findnz, but without the values.
+function find_indices(A::SparseMatrixCSC)
+    I,J,_ = findnz_minimal(A)
+    copy(I),J
+end
+function find_indices(A::SparseMatrixCSR)
+    I,J,_ = findnz_minimal(A)
+    I,copy(J)
+end
+
+# TODO Could be done without binary searches from nzindex(...), when it is known that A and C are ordered, and A is a guaranteed submatrix of C.
+function precompute_nzindex(C::AbstractSparseArray,A::AbstractSparseArray)
+    I,J,_ = findnz_minimal(A)
+    K = similar(I)
+    K .= 0
+    for (p,(i,j)) in enumerate(zip(I,J))
+        if i < 1 || j < 1
+            continue
+        end
+        K[p] = nzindex(C,i,j)
+    end
+    K
+end
+
 function expand_sparse_matrix_columns(A::SparseMatrixCSR{Bi,Tv,Ti} where {Tv, Ti}, n) where Bi
     p,q = size(A)
     @assert n >= q
@@ -772,23 +763,6 @@ function Base.copy(At::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}} where {Bi,Tv,Ti})
     Acsc_T = copy(transpose(ascsc(At.parent))) # materialize SparseMatrixCSC transpose
     ascsr(Acsc_T)
 end
-
-function SparseMatricesCSR.sparsecsr(A::SparseMatrixCSC)
-    sparsecsr(findnz(A)..., size(A)...)
-end
-
-function SparseMatricesCSR.sparsecsr(At::Transpose)
-    transpose(sparsecsr(At.parent))
-end
-
-function SparseMatricesCSR.sparsecsr(A::SparseMatrixCSR)
-    A
-end
-
-function SparseMatricesCSR.sparsecsr(T::Type, A::SparseMatrixCSC)
-    compresscoo(T,findnz(A)..., size(A)...)
-end
-
 
 function pointer_array(A::SparseMatrixCSR)
     A.rowptr
