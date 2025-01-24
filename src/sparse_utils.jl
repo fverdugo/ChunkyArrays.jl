@@ -477,15 +477,24 @@ function precompute_nzindex(A,I,J)
 end
 
 # Reuse I vector as K vector. 
-function precompute_nzindex!(I,A,J)
-    for (p,(i,j)) in enumerate(zip(I,J))
+# function precompute_nzindex!(I,A,J)
+#     for (p,(i,j)) in enumerate(zip(I,J))
+#         if i < 1 || j < 1
+#             continue
+#         end
+#         I[p] = nzindex(A,i,j)
+#     end
+#     I
+# end
+
+function precompute_nzindex!(K, A, I, J)
+    for (p, (i, j)) in enumerate(zip(I, J))
         if i < 1 || j < 1
             continue
         end
-        I[p] = nzindex(A,i,j)
-    end
-    I
-end
+        K[p] = nzindex(A, i, j)
+  end
+
 
 function sparse_matrix!(A,V,K;reset=true)
     if reset
