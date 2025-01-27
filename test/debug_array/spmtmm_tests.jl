@@ -1,14 +1,19 @@
 module DebugArraySpMtMMTests
 
 using PartitionedArrays
-using SparseArrays
+using Test
 
-include(joinpath("..","primitives_tests.jl"))
+include(joinpath("..","spmtmm_tests.jl"))
 
-M = sparse(1:5,1:5,1:5)
+v = 1:5
+M = sparse(v,v,v)
 @test nnz(M-M) == nnz(M)
 display(M-M)
 
-with_debug(primitives_tests)
+M = sparsecsr(v,v,v)
+@test nnz(M-M) == nnz(M)
+display(M-M)
+
+with_debug(spmtmm_tests)
 
 end # module

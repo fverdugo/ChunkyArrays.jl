@@ -1,51 +1,8 @@
-module SpMtMMTests
-
 using SparseArrays
 using SparseMatricesCSR
 using PartitionedArrays
 using LinearAlgebra
 using Test
-
-# Equality definition for SparseCSC and SparseCSR. If the size and lengths match, the CSR matrix is converted
-function strictly_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSR)
-    if size(A) != size(B) && return false; end
-    if length(nonzeros(A)) != length(nonzeros(B)) && return false; end
-    Bcsc = sparse(findnz(B)...,size(B)...)
-    if rowvals(A) != rowvals(Bcsc) && return false; end
-    if nonzeros(A) != nonzeros(Bcsc) && return false; end
-    true
-end
-
-function strictly_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSC)
-    if size(A) != size(B) && return false; end
-    if length(nonzeros(A)) != length(nonzeros(B)) && return false; end
-    if A.colptr != B.colptr && return false; end
-    if rowvals(A) != rowvals(B) && return false; end
-    if nonzeros(A) != nonzeros(B) && return false; end
-    true
-end
-
-function strictly_equivalent(A::SparseMatrixCSR, B::SparseMatrixCSR)
-    if size(A) != size(B) && return false; end
-    if length(nonzeros(A)) != length(nonzeros(B)) && return false; end
-    if A.rowptr != B.rowptr && return false; end
-    if colvals(A) != colvals(B) && return false; end
-    if nonzeros(A) != nonzeros(B) && return false; end
-    true
-end
-
-function strictly_equivalent(A::SparseMatrixCSR,B::SparseMatrixCSC) strictly_equivalent(B,A) end
-
-# Equality definition for SparseCSC and SparseCSR. If the size and lengths match, the CSR matrix is converted
-function approx_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSR,args...)
-    if size(A) != size(B) && return false; end
-    if length(nonzeros(A)) != length(nonzeros(B)) && return false; end
-    Bcsc = sparse(findnz(B)...,size(B)...)
-    if A.colptr != Bcsc.colptr && return false; end
-    if rowvals(A) != rowvals(Bcsc) && return false; end
-    if !isapprox(nonzeros(A),nonzeros(B),args...) && return false; end
-    true
-end
 
 function approx_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSC,args...)
     if size(A) != size(B) && return false; end
@@ -65,9 +22,6 @@ function approx_equivalent(A::SparseMatrixCSR, B::SparseMatrixCSR,args...)
     if !isapprox(nonzeros(A),nonzeros(B),args...) && return false; end
     true
 end
-
-function approx_equivalent(A::SparseMatrixCSR,B::SparseMatrixCSC) strictly_equivalent(B,A) end
-
 
 function parallel_tests(pA,pB,sparse_func)
     A = centralize(sparse_func,pA)
@@ -188,29 +142,18 @@ function spmtmm_tests(distribute)
     pB = pA
     parallel_tests(pA,pB,sparsecsr)
 
-    T = eltype(typeof(own_own_values(pA).items))
-
-    pB = prolongator(T,pA)
-    B = centralize(T,pB)
-    sequential_tests(pA,pB)
-
-    #### CSC
-    do_CSC = true
-    if do_CSC
-        pA = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = Ti)...) |> fetch
-        T = eltype(typeof(own_own_values(pA).items))
-
-        pB = pA
-        parallel_tests(pA,pB,sparse)
-
-        parallel_time(pA,pB,sparse)
-        T = eltype(typeof(own_own_values(pA).items))
-        pB = prolongator(T,pA)
-        B = centralize(T,pB)
-        parallel_tests(pA,pB,sparse)
-    end
+    # Testing with a real prolongator requires PartitionedSolvers
+    # T = eltype(typeof(own_own_values(pA).items))
+    # pB = prolongator(T,pA)
+    # parallel_tests(pA,pB,sparsecsr)
+    
+    #### CSC ####
+    pA = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = Ti)...) |> fetch
+    pB = pA
+    parallel_tests(pA,pB,sparse)
+    
+    # Testing with a real prolongator requires PartitionedSolvers
+    # T = eltype(typeof(own_own_values(pA).items))
+    # pB = prolongator(T,pA)
+    # parallel_tests(pA,pB,sparse)
 end
-
-end # module
-;
-

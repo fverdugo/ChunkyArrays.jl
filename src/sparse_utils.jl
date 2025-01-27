@@ -799,6 +799,15 @@ function find_max_row_length(A::SparseMatrixCSR)
     max_rA
 end
 
+function find_max_row_length(A::JaggedArray)
+    max_rA = 0
+    for i in 1:length(A.ptrs)-1
+        l = length(jagged_range(A,i))
+        max_rA = max_rA > l ? max_rA : l
+    end
+    max_rA
+end
+
 function find_max_col_length(A::SparseMatrixCSC)
     max_cA = 0
     for j in 1:size(A,2)
@@ -821,7 +830,6 @@ function ascsc(A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
     p,q = size(A)
     SparseMatrixCSC{Tv,Ti}(q,p,A.rowptr,colvals(A),nonzeros(A))
 end
-
 
 function halfperm(A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
     q = size(A,2)
@@ -906,3 +914,64 @@ function counts_to_ptrs!(v)
     shift_by_one!(v)
     v[1] = 1
 end
+
+function symbolic_halfperm(A::SparseMatrixCSR)
+    q = size(A,2)
+    JA = colvals(A)
+    IAt,JAt = similar(A.rowptr,q+1),similar(JA)
+    symbolic_halfperm!(IAt,JAt,A)
+end
+
+# transpose A into At using vectors IAt,JAt, and VAt
+function symbolic_halfperm!(IAt,JAt,A::SparseMatrixCSR)
+    JA= colvals(A)
+    p,q = size(A)
+    count_occurrences!(IAt,JA)
+    counts_to_ptrs!(IAt)
+    shift_by_one!(IAt)
+    for i in 1:p
+        for jp in nzrange(A,i)
+            j = JA[jp]
+            jpt = IAt[j+1]
+            JAt[jpt] = i
+            IAt[j+1] = jpt+1
+        end
+    end
+    IAt[1] = 1
+    JaggedArray(JAt,IAt)
+end
+
+# transpose A into At using vectors IAt,JAt, and VAt
+function symbolic_halfperm!(JAt,IAt,A::SparseMatrixCSC)
+    symbolic_halfperm!(JAt,IAt,ascsr(A))
+end
+
+function symbolic_halfperm(A::SparseMatrixCSC)
+    symbolic_halfperm(ascsr(A))
+end
+
+# retranspose At back into A
+function symbolic_halfperm!(A::SparseMatrixCSR,At::JaggedArray)
+    IA,JA = pointer_array(A),index_array(A)
+    JAt = At.data
+    # p = size(A,1)
+    shift_by_one!(IA) # pointer to row 1 must be located at IA[2], row 2 at IA[3] etc.
+    IA[1] = 1
+    for i in 1:size(A,2)
+        for jpt in jagged_range(At,i)
+            j = JAt[jpt]
+            jp = IA[j+1]
+            JA[jp] = i
+            IA[j+1] = jp+1
+        end
+    end
+    A
+end
+
+# retranspose At back into A
+function symbolic_halfperm!(A::SparseMatrixCSC,At::JaggedArray)
+    symbolic_halfperm!(ascsr(A),At)
+    A
+end
+
+

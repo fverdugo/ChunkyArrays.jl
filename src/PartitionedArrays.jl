@@ -25,6 +25,12 @@ export compresscoo
 export indextype
 export sparse_matrix
 export sparse_matrix!
+export index_array
+export pointer_array
+export halfperm
+export halfperm!
+export symbolic_halfperm
+export symbolic_halfperm!
 include("sparse_utils.jl")
 
 export linear_indices
@@ -202,6 +208,7 @@ export node_coordinates_unit_cube
 export nullspace_linear_elasticity
 export nullspace_linear_elasticity!
 export near_nullspace_linear_elasticity
+export prolongator
 include("gallery.jl")
 
 export RAP
