@@ -3138,8 +3138,8 @@ function spmtmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fal
     Aog = own_ghost_values(A)
     Bog = own_ghost_values(B)
     
-    Doo1, Doo_cache = map((A,B,C)->RAP(transpose(A),B,C), Aoo,Boo,Cog) |> tuple_of_arrays
-    Dgo1, Dgo_cache = map((A,B,C)->RAP(transpose(A),B,C), Aog,Boo,Cog) |> tuple_of_arrays
+    Doo1, Doo_cache = map((A,B,C)->rap(transpose(A),B,C), Aoo,Boo,Cog) |> tuple_of_arrays
+    Dgo1, Dgo_cache = map((A,B,C)->rap(transpose(A),B,C), Aog,Boo,Cog) |> tuple_of_arrays
     
     # Collect ghost rows from P before continuing
     C2, consistencyCache = fetch(consistency_task)
@@ -3148,9 +3148,9 @@ function spmtmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fal
     Cgo = ghost_own_values(C2)
     Cgg = ghost_ghost_values(C2)
 
-    Dgo2, Dgo_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Bog,Cgo,Dgo_cache) |> tuple_of_arrays
-    Dog1, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Boo,Cog2,Dgo_cache) |> tuple_of_arrays
-    Dog2, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aog,Bog,Cgg,Dog_cache) |> tuple_of_arrays        
+    Dgo2, Dgo_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aog,Bog,Cgo,Dgo_cache) |> tuple_of_arrays
+    Dog1, Dog_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aog,Boo,Cog2,Dgo_cache) |> tuple_of_arrays
+    Dog2, Dog_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aog,Bog,Cgg,Dog_cache) |> tuple_of_arrays        
 
     Dgo = map(+,Dgo1,Dgo2) # different sparsity patterns so not in-place.
     Dog = map(+,Dog1,Dog2)
@@ -3164,9 +3164,9 @@ function spmtmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fal
     D1_unassembled = PSparseMatrix(D1_values, partition(axes(C,2)), partition(axes(C2,2)), false)
     assembly_task = assemble(D1_unassembled, reuse=true)
 
-    Dog1, Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Boo,Cog2,Doo_cache) |> tuple_of_arrays
-    Doo2,Doo_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
-    Dog2,Dog_cache = map((A,B,C,cache)->RAP(transpose(A),B,C,cache), Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
+    Dog1, Dog_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aoo,Boo,Cog2,Doo_cache) |> tuple_of_arrays
+    Doo2,Doo_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
+    Dog2,Dog_cache = map((A,B,C,cache)->rap(transpose(A),B,C,cache), Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
 
     Doo = map(+,Doo1,Doo2)
     Dog = map(+,Dog1,Dog2)
@@ -3216,8 +3216,8 @@ function spmtmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,C::PSparseMa
     Aog = own_ghost_values(A)
     Bog = own_ghost_values(B)
     
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Doo,Aoo,Boo,Coo,Doo_cache)
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dgo,Aog,Boo,Coo,Dgo_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,cache), Doo,Aoo,Boo,Coo,Doo_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,cache), Dgo,Aog,Boo,Coo,Dgo_cache)
     
     # Collect ghost rows from P before continuing
     wait(consistency_task)
@@ -3225,16 +3225,16 @@ function spmtmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,C::PSparseMa
     Cgo = ghost_own_values(C2)
     Cgg = ghost_ghost_values(C2)
 
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dgg,Aog,Boo,Cog2,Dgg_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,cache), Dgg,Aog,Boo,Cog2,Dgg_cache)
 
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dgo,Aog,Bog,Cgo,Dgo_cache)
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dgg,Aog,Bog,Cgg,Dgg_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,1,1,cache), Dgo,Aog,Bog,Cgo,Dgo_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,1,1,cache), Dgg,Aog,Bog,Cgg,Dgg_cache)
 
     assembly_task = assemble!(D1, D1_unassembled, assemblyCache)
     
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Doo,Aoo,Bog,Cgo,Doo_cache)
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,cache), Dog,Aoo,Boo,Cog2,Dog_cache)
-    map((D,A,B,C,cache)->RAP!(D,transpose(A),B,C,1,1,cache), Dog,Aoo,Bog,Cgg,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,1,1,cache), Doo,Aoo,Bog,Cgo,Doo_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,cache), Dog,Aoo,Boo,Cog2,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,transpose(A),B,C,1,1,cache), Dog,Aoo,Bog,Cgg,Dog_cache)
     
     wait(assembly_task)
     add!(D, D1, D2, mergeCache)
@@ -3252,7 +3252,7 @@ function spmmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fals
     Boo = own_own_values(B)
     Coo = own_own_values(C)
 
-    Doo1,Doo_cache = map(RAP,Aoo,Boo,Coo) |> tuple_of_arrays
+    Doo1,Doo_cache = map(rap,Aoo,Boo,Coo) |> tuple_of_arrays
     B2, Bcache = fetch(B2_task)
     C2_task = consistent(C,partition(axes(B2,2)),reuse=true)
 
@@ -3260,7 +3260,7 @@ function spmmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fals
     Bgo = ghost_own_values(B2)
     Bgg = ghost_ghost_values(B2)
 
-    Doo2,Doo_cache = map(RAP,Aog,Bgo,Coo,Doo_cache) |> tuple_of_arrays
+    Doo2,Doo_cache = map(rap,Aog,Bgo,Coo,Doo_cache) |> tuple_of_arrays
     Doo12 = map(+,Doo1,Doo2)
 
     C2, Ccache = fetch(C2_task)
@@ -3269,16 +3269,16 @@ function spmmm(A::PSparseMatrix,B::PSparseMatrix,C::PSparseMatrix;reuse=Val(fals
     Cgo = ghost_own_values(C2)
     Cgg = ghost_ghost_values(C2)
 
-    Doo3,Doo_cache = map(RAP,Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
-    Doo4,Doo_cache = map(RAP,Aog,Bgg,Cgo,Doo_cache) |> tuple_of_arrays
+    Doo3,Doo_cache = map(rap,Aoo,Bog,Cgo,Doo_cache) |> tuple_of_arrays
+    Doo4,Doo_cache = map(rap,Aog,Bgg,Cgo,Doo_cache) |> tuple_of_arrays
   
     Doo34 = map(+,Doo3,Doo4)
     Doo = map(+,Doo12,Doo34)
   
-    Dog1,Dog_cache = map(RAP,Aoo,Boo,Cog) |> tuple_of_arrays
-    Dog2,Dog_cache = map(RAP,Aog,Bgo,Cog,Dog_cache) |> tuple_of_arrays
-    Dog3,Dog_cache = map(RAP,Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
-    Dog4,Dog_cache = map(RAP,Aog,Bgg,Cgg,Dog_cache) |> tuple_of_arrays
+    Dog1,Dog_cache = map(rap,Aoo,Boo,Cog) |> tuple_of_arrays
+    Dog2,Dog_cache = map(rap,Aog,Bgo,Cog,Dog_cache) |> tuple_of_arrays
+    Dog3,Dog_cache = map(rap,Aoo,Bog,Cgg,Dog_cache) |> tuple_of_arrays
+    Dog4,Dog_cache = map(rap,Aog,Bgg,Cgg,Dog_cache) |> tuple_of_arrays
 
     Dog12 = map(+,Dog1,Dog2)
     Dog34 = map(+,Dog3,Dog4)
@@ -3310,25 +3310,25 @@ function spmmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,C::PSparseMat
     Aog = own_ghost_values(A)
     Boo = own_own_values(B)
     Coo = own_own_values(C)
-    map(RAP!,Doo,Aoo,Boo,Coo,Doo_cache)
+    map(rap!,Doo,Aoo,Boo,Coo,Doo_cache)
     wait(B2_task)
 
     C2_task = consistent!(C2,C,Ccache)
     Bog = own_ghost_values(B2)
     Bgo = ghost_own_values(B2)
     Bgg = ghost_ghost_values(B2)
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aog,Bgo,Coo,Doo_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Doo,Aog,Bgo,Coo,Doo_cache)
 
     wait(C2_task)
     Cog = own_ghost_values(C2)
     Cgo = ghost_own_values(C2)
     Cgg = ghost_ghost_values(C2)
 
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aoo,Bog,Cgo,Doo_cache)
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Doo,Aog,Bgg,Cgo,Doo_cache)
-    map(RAP!,Dog,Aoo,Boo,Cog,Dog_cache)
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aog,Bgo,Cog,Dog_cache)
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aoo,Bog,Cgg,Dog_cache)
-    map((D,A,B,C,cache)->RAP!(D,A,B,C,1,1,cache),Dog,Aog,Bgg,Cgg,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Doo,Aoo,Bog,Cgo,Doo_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Doo,Aog,Bgg,Cgo,Doo_cache)
+    map(rap!,Dog,Aoo,Boo,Cog,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Dog,Aog,Bgo,Cog,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Dog,Aoo,Bog,Cgg,Dog_cache)
+    map((D,A,B,C,cache)->rap!(D,A,B,C,1,1,cache),Dog,Aog,Bgg,Cgg,Dog_cache)
     D
 end

@@ -647,13 +647,13 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR{Bi,Tv,Ti},
 end
 
 # PtAP variants
-function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}}, A::SparseMatrixCSR{Bi,Tv,Ti}, Pr::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
+function rap(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}}, A::SparseMatrixCSR{Bi,Tv,Ti}, Pr::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
     p,q = size(Plt)
     m,r = size(A)
     n,s = size(Pr)
     if r != n && throw(DimensionMismatch("Invalid dimensions for A*P: ($m,$r)*($n,$s),"));end
     if q != m && throw(DimensionMismatch("Invalid dimensions: R*AP: ($p,$q)*($m,$s)"));end
-    function RAP_symbolic_count!(R,A,Pr)
+    function rap_symbolic_count!(R,A,Pr)
         JR = R.data
         JA = colvals(A)
         JPr = colvals(Pr) # colvals can be interpreted as rowvals when Pr is virtually transposed.
@@ -706,7 +706,7 @@ function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}}, A::SparseMatrixCSR{Bi
         cache = (xbRA,JRA,xbC,JAP)
         SparseMatrixCSR{Bi}(p,s,IC,JC,VC), cache # values not yet initialized
     end
-    function RAP_symbolic_fill!(C,R,A,Pr,cache)
+    function rap_symbolic_fill!(C,R,A,Pr,cache)
         (xbRA,JRA,xbC,JAP) = cache
         JC = colvals(C)
         JR = R.data
@@ -745,18 +745,18 @@ function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}}, A::SparseMatrixCSR{Bi
         outer_cache = (xbC,similar(xbC, Tv),JAP)
         C, outer_cache # values not yet initialized
     end
-    function _RAP(Plt,A,Pr)
+    function _rap(Plt,A,Pr)
         R = symbolic_halfperm(Plt.parent)
-        C,symbolic_cache = RAP_symbolic_count!(R,A,Pr) # precompute nz structure with a symbolic transpose
-        _,outer_cache = RAP_symbolic_fill!(C,R,A,Pr,symbolic_cache)
+        C,symbolic_cache = rap_symbolic_count!(R,A,Pr) # precompute nz structure with a symbolic transpose
+        _,outer_cache = rap_symbolic_fill!(C,R,A,Pr,symbolic_cache)
         Ct = symbolic_halfperm(C)
         symbolic_halfperm!(C,Ct)
-        RAP!(C,Plt,A,Pr,outer_cache),(outer_cache...,R)
+        rap!(C,Plt,A,Pr,outer_cache),(outer_cache...,R)
     end
-    _RAP(Plt,A,Pr)
+    _rap(Plt,A,Pr)
 end
 
-function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
+function rap(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
              A::SparseMatrixCSR{Bi,Tv,Ti},
              Pr::SparseMatrixCSR{Bi,Tv,Ti},
              cache) where {Bi,Tv,Ti}
@@ -766,7 +766,7 @@ function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
     if r != n && throw(DimensionMismatch("Invalid dimensions for A*P: ($m,$r)*($n,$s),"));end
     if q != m && throw(DimensionMismatch("Invalid dimensions: R*AP: ($p,$q)*($m,$s)"));end
     
-    function RAP_symbolic_count!(R,A,Pr)
+    function rap_symbolic_count!(R,A,Pr)
         JR = R.data
         JA = colvals(A)
         JPr = colvals(Pr) # colvals can be interpreted as rowvals when Pr is virtually transposed.
@@ -818,7 +818,7 @@ function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
         xbC .= 0
         SparseMatrixCSR{Bi}(p,s,IC,JC,VC),(xbRA,JRA,xbC,JAP) # values in CSR matrix not yet initialized
     end
-    function RAP_symbolic_fill!(C,R,A,Pr,cache)
+    function rap_symbolic_fill!(C,R,A,Pr,cache)
         (xbRA,JRA,xbC,JAP) = cache
         JC = colvals(C)
         JR = R.data
@@ -856,17 +856,17 @@ function RAP(Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
         xbC .= 0
         C, (xbC,similar(xbC, Tv),JAP) # values not yet initialized
     end
-    function _RAP(Plt,A,Pr,old_cache)
+    function _rap(Plt,A,Pr,old_cache)
         xb,x,JAP,R = old_cache
         old_outer_cache = (xb,x,JAP)
-        C,symbolic_cache = RAP_symbolic_count!(R, A, Pr)
-        _,new_outer_cache = RAP_symbolic_fill!(C,R, A, Pr, symbolic_cache)
+        C,symbolic_cache = rap_symbolic_count!(R, A, Pr)
+        _,new_outer_cache = rap_symbolic_fill!(C,R, A, Pr, symbolic_cache)
         Ct = symbolic_halfperm(C)
         symbolic_halfperm!(C,Ct)
         outer_cache = map((c1,c2) -> length(c1) >= length(c2) ? c1 : c2, old_outer_cache,new_outer_cache)
-        RAP!(C,Plt,A,Pr,outer_cache),(outer_cache...,R)
+        rap!(C,Plt,A,Pr,outer_cache),(outer_cache...,R)
     end
-    _RAP(Plt,A,Pr,cache)
+    _rap(Plt,A,Pr,cache)
 end
 
 function reduce_spmtmm_cache(cache,::Type{SparseMatrixCSR})
@@ -874,7 +874,7 @@ function reduce_spmtmm_cache(cache,::Type{SparseMatrixCSR})
     (xb,x,JAP)
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,Ti}, 
+function rap!(C::SparseMatrixCSR{Bi,Tv,Ti}, 
               Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
               A::SparseMatrixCSR{Bi,Tv,Ti},
               Pr::SparseMatrixCSR{Bi,Tv,Ti},
@@ -932,7 +932,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,Ti},
     C
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,Ti},
+function rap!(C::SparseMatrixCSR{Bi,Tv,Ti},
               Plt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}},
               A::SparseMatrixCSR{Bi,Tv,Ti},
               Pr::SparseMatrixCSR{Bi,Tv,Ti},
@@ -991,8 +991,8 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,Ti},
     C
 end
 
-# RAP variants
-function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
+# rap variants
+function rap(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
              A::SparseMatrixCSR{Bi,Tv,TiA},
              Pr::SparseMatrixCSR{Bi,Tv,TiPr}) where {Bi,Tv,TiPl,TiA,TiPr}
     p,q = size(Pl)
@@ -1000,7 +1000,7 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
     n,s = size(Pr)
     if q == m || throw(DimensionMismatch("Invalid dimensions for R*A: ($p,$q)*($m,$r),"));end
     if r == n || throw(DimensionMismatch("Invalid dimensions: RA*P: ($p,$r)*($n,$s)"));end
-    function RAP_symbolic!(Pl,A,Pr)
+    function rap_symbolic!(Pl,A,Pr)
         JPl = colvals(Pl)
         JA = colvals(A)
         JPr = colvals(Pr) # colvals can be interpreted as rowvals when Pr is virtually transposed.
@@ -1052,7 +1052,7 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
         cache = (xbRA,xRA,JRA,xbC,xC)
         SparseMatrixCSR{Bi}(p,s,IC,JC,VC), cache # values not yet initialized
     end
-    function RAP_numeric!(C,Pl,A,Pr,cache)
+    function rap_numeric!(C,Pl,A,Pr,cache)
         JPl = colvals(Pl)
         VPl = nonzeros(Pl)
         JA = colvals(A)
@@ -1103,17 +1103,17 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
             end
         end
     end
-    function _RAP(Pl,A,Pr)
-        C,(xbRA,xRA,JRA,xbC,xC) = RAP_symbolic!(Pl,A,Pr)
+    function _rap(Pl,A,Pr)
+        C,(xbRA,xRA,JRA,xbC,xC) = rap_symbolic!(Pl,A,Pr)
         xbRA .= 0
         xbC .= 0
         cache = (xbRA,xRA,JRA,xbC,xC)
-        RAP_numeric!(C,Pl,A,Pr,cache)
+        rap_numeric!(C,Pl,A,Pr,cache)
         Ct = halfperm!(xbC,similar(colvals(C)),similar(nonzeros(C)),C)
         halfperm!(C,Ct)
         C,cache
     end
-    _RAP(Pl,A,Pr)
+    _rap(Pl,A,Pr)
 end
 
 # Reuses internal arrays of A!!!
@@ -1134,7 +1134,7 @@ function reduce_spmtmm_cache(cache,::Type{M}  where M <: SparseMatrixCSC)
     reduce_spmmmt_cache(cache,SparseMatrixCSR)
 end
 
-function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
+function rap(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
              A::SparseMatrixCSR{Bi,Tv,TiA},
              Pr::SparseMatrixCSR{Bi,Tv,TiPr},
              cache) where {Bi,Tv,TiPl,TiA,TiPr}
@@ -1143,7 +1143,7 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
     n,s = size(Pr)
     if q == m || throw(DimensionMismatch("Invalid dimensions for R*A: ($p,$q)*($m,$r),"));end
     if r == n || throw(DimensionMismatch("Invalid dimensions: RA*P: ($p,$r)*($n,$s)"));end
-    function RAP_symbolic!(Pl,A,Pr,cache)
+    function rap_symbolic!(Pl,A,Pr,cache)
         JPl = colvals(Pl)
         JA = colvals(A)
         JPr = colvals(Pr) # colvals can be interpreted as rowvals when Pr is virtually transposed.
@@ -1185,7 +1185,7 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
         VC = zeros(Tv,nnz_C-1)
         SparseMatrixCSR{Bi}(p,s,IC,JC,VC) # values not yet initialized
     end
-    function RAP_numeric!(C,Pl,A,Pr,cache)
+    function rap_numeric!(C,Pl,A,Pr,cache)
         JPl = colvals(Pl)
         VPl = nonzeros(Pl)
         JA = colvals(A)
@@ -1236,7 +1236,7 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
             end
         end
     end
-    function _RAP(Pl,A,Pr,old_cache)
+    function _rap(Pl,A,Pr,old_cache)
         max_rPl = find_max_row_length(Pl)
         max_rA = find_max_row_length(A)
         max_rPr = find_max_row_length(Pr)
@@ -1254,15 +1254,15 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiPl},
         new_cache = (xbRA2,xRA2,JRA2,xbC,xC)
         xbRA2 .= 0
         xbC .= 0
-        C = RAP_symbolic!(Pl,A,Pr,new_cache)
+        C = rap_symbolic!(Pl,A,Pr,new_cache)
         xbRA2 .= 0
         xbC .= 0
-        RAP_numeric!(C,Pl,A,Pr,new_cache)
+        rap_numeric!(C,Pl,A,Pr,new_cache)
         Ct = halfperm!(xbC,similar(colvals(C)),similar(nonzeros(C)),C)
         halfperm!(C,Ct)
         C,new_cache
     end
-    _RAP(Pl,A,Pr,cache)
+    _rap(Pl,A,Pr,cache)
 end
 
 function reduce_spmmmt_cache(cache,::Type{M} where M <: SparseMatrixCSR)
@@ -1274,7 +1274,7 @@ function reduce_spmmmt_cache(cache,::Type{M} where M <: SparseMatrixCSC)
     reduce_spmtmm_cache(cache,SparseMatrixCSR)
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
+function rap!(C::SparseMatrixCSR{Bi,Tv,TiC},
               Pl::SparseMatrixCSR{Bi,Tv,TiPl},
               A::SparseMatrixCSR{Bi,Tv,TiA},
               Pr::SparseMatrixCSR{Bi,Tv,TiPr},
@@ -1341,7 +1341,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
     C
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
+function rap!(C::SparseMatrixCSR{Bi,Tv,TiC},
               Pl::SparseMatrixCSR{Bi,Tv,TiPl},
               A::SparseMatrixCSR{Bi,Tv,TiA},
               Pr::SparseMatrixCSR{Bi,Tv,TiPr},
@@ -1409,7 +1409,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
 end
 
 # RARt variants
-function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiA},
+function rap(Pl::SparseMatrixCSR{Bi,Tv,TiA},
              A::SparseMatrixCSR{Bi,Tv,TiB},
              Prt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,TiC}}) where {Bi,Tv,TiA,TiB,TiC}
     p,q = size(Pl)
@@ -1417,10 +1417,10 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiA},
     n,s = size(Prt)
     if q == m || throw(DimensionMismatch("Invalid dimensions for R*A: ($p,$q)*($m,$r),"));end
     if r == n || throw(DimensionMismatch("Invalid dimensions for RA*P: ($p,$r)*($n,$s)"));end
-    RAP(Pl,A,copy(Prt))
+    rap(Pl,A,copy(Prt))
 end
 
-function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiA},
+function rap(Pl::SparseMatrixCSR{Bi,Tv,TiA},
              A::SparseMatrixCSR{Bi,Tv,TiB},
              Prt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,TiC}},cache) where {Bi,Tv,TiA,TiB,TiC}
     p,q = size(Pl)
@@ -1428,10 +1428,10 @@ function RAP(Pl::SparseMatrixCSR{Bi,Tv,TiA},
     n,s = size(Prt)
     if q == m || throw(DimensionMismatch("Invalid dimensions for R*A: ($p,$q)*($m,$r),"));end
     if r == n || throw(DimensionMismatch("Invalid dimensions for RA*P: ($p,$r)*($n,$s)"));end
-    RAP(Pl,A,copy(Prt),cache)
+    rap(Pl,A,copy(Prt),cache)
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
+function rap!(C::SparseMatrixCSR{Bi,Tv,TiC},
               Pl::SparseMatrixCSR{Bi,Tv,TiPl}, 
               A::SparseMatrixCSR{Bi,Tv,TiA}, 
               Prt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,TiPr}},
@@ -1450,7 +1450,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
     VPr = nonzeros(Pr)
     JC = colvals(C)
     VC = nonzeros(C)
-    # some cache items are present with the regular RAP product in mind, which is how the allocating verison is performed
+    # some cache items are present with the regular rap product in mind, which is how the allocating verison is performed
     xb,x = cache
     xb .= 0
     for i in 1:p
@@ -1485,7 +1485,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
     C
 end
 
-function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
+function rap!(C::SparseMatrixCSR{Bi,Tv,TiC},
               Pl::SparseMatrixCSR{Bi,Tv,TiPl},
               A::SparseMatrixCSR{Bi,Tv,TiA},
               Prt::Transpose{Tv,SparseMatrixCSR{Bi,Tv,TiPr}},
@@ -1507,7 +1507,7 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
     JC = colvals(C)
     VC = nonzeros(C)
     VC .*= β
-    # some cache items are present with the regular RAP product in mind, which is how the allocating verison is performed
+    # some cache items are present with the regular rap product in mind, which is how the allocating verison is performed
     xb,x = cache
     xb .= 0
     for i in 1:p
@@ -1543,52 +1543,52 @@ function RAP!(C::SparseMatrixCSR{Bi,Tv,TiC},
 end
 
 ### CSC in terms of CSR
-function RAP(A::SparseMatrixCSC{Tv,TiA},
+function rap(A::SparseMatrixCSC{Tv,TiA},
              B::SparseMatrixCSC{Tv,TiB},
              C::SparseMatrixCSC{Tv,TiC}) where {Tv,TiA,TiB,TiC}
-    D,cache = RAP(ascsr(C),ascsr(B),ascsr(A))
+    D,cache = rap(ascsr(C),ascsr(B),ascsr(A))
     ascsc(D),cache
 end
 
-function RAP(A::SparseMatrixCSC{Tv,TiA},
+function rap(A::SparseMatrixCSC{Tv,TiA},
              B::SparseMatrixCSC{Tv,TiB},
              C::SparseMatrixCSC{Tv,TiC},
              cache) where {Tv,TiA,TiB,TiC}
-    D,new_cache = RAP(ascsr(C),ascsr(B),ascsr(A),cache)
+    D,new_cache = rap(ascsr(C),ascsr(B),ascsr(A),cache)
     ascsc(D),new_cache
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::SparseMatrixCSC{Tv,TiA},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
               cache) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),cache)
+    rap!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),cache)
     D
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::SparseMatrixCSC{Tv,TiA},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
               cache::JaggedArray{X,Y} where {X<:Integer, Y<:Integer},
               acc) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),cache,acc)
+    rap!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),cache,acc)
     D
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::SparseMatrixCSC{Tv,TiA},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
               α::Number,
               β::Number,
               cache) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),α,β,cache)
+    rap!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),α,β,cache)
     D
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::SparseMatrixCSC{Tv,TiA},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
@@ -1596,77 +1596,77 @@ function RAP!(D::SparseMatrixCSC{Tv,TiD},
               β::Number,
               cache::JaggedArray{X,Y} where {X <: Integer, Y<:Integer},
               acc) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),α,β,cache,acc)
+    rap!(ascsr(D),ascsr(C),ascsr(B),ascsr(A),α,β,cache,acc)
     D
 end
 
 # PtAP
-function RAP(A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
+function rap(A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
              B::SparseMatrixCSC{Tv,TiB},
              C::SparseMatrixCSC{Tv,TiC}) where {Tv,TiA,TiB,TiC}
-    D,cache = RAP(ascsr(C),ascsr(B),transpose(ascsr(A.parent)))
+    D,cache = rap(ascsr(C),ascsr(B),transpose(ascsr(A.parent)))
     ascsc(D),cache
 end
 
-function RAP(A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
+function rap(A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
              B::SparseMatrixCSC{Tv,TiB},
              C::SparseMatrixCSC{Tv,TiC},
              cache) where {Tv,TiA,TiB,TiC}
-    D,cache = RAP(ascsr(C),ascsr(B),transpose(ascsr(A.parent)),cache)
+    D,cache = rap(ascsr(C),ascsr(B),transpose(ascsr(A.parent)),cache)
     ascsc(D),cache
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
               cache) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),transpose(ascsr(A.parent)),cache)
+    rap!(ascsr(D),ascsr(C),ascsr(B),transpose(ascsr(A.parent)),cache)
     D
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,TiD},
+function rap!(D::SparseMatrixCSC{Tv,TiD},
               A::Transpose{Tv,SparseMatrixCSC{Tv,TiA}},
               B::SparseMatrixCSC{Tv,TiB},
               C::SparseMatrixCSC{Tv,TiC},
               α::Number,
               β::Number,
               cache) where {Tv,TiD,TiA,TiB,TiC}
-    RAP!(ascsr(D),ascsr(C),ascsr(B),transpose(ascsr(A.parent)),α,β,cache)
+    rap!(ascsr(D),ascsr(C),ascsr(B),transpose(ascsr(A.parent)),α,β,cache)
     D
 end
 
 # RARt
-function RAP(A::SparseMatrixCSC{Tv,Ti},
+function rap(A::SparseMatrixCSC{Tv,Ti},
              B::SparseMatrixCSC{Tv,Ti},
              C::Transpose{Tv,SparseMatrixCSC{Tv,Ti}}) where {Tv,Ti<:Integer}
-    D,new_cache = RAP(transpose(ascsr(C.parent)),ascsr(B),ascsr(A))
+    D,new_cache = rap(transpose(ascsr(C.parent)),ascsr(B),ascsr(A))
     ascsc(D),new_cache
 end
-function RAP(A::SparseMatrixCSC{Tv,Ti},
+function rap(A::SparseMatrixCSC{Tv,Ti},
              B::SparseMatrixCSC{Tv,Ti},
              C::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
              cache) where {Tv,Ti<:Integer}
-    D,new_cache = RAP(transpose(ascsr(C.parent)),ascsr(B),ascsr(A),cache)
+    D,new_cache = rap(transpose(ascsr(C.parent)),ascsr(B),ascsr(A),cache)
     ascsc(D),new_cache
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,Ti},
+function rap!(D::SparseMatrixCSC{Tv,Ti},
               A::SparseMatrixCSC{Tv,Ti},
               B::SparseMatrixCSC{Tv,Ti},
               C::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
               cache) where {Tv,Ti<:Integer}
-    RAP!(ascsr(D),transpose(ascsr(C.parent)),ascsr(B),ascsr(A),cache)
+    rap!(ascsr(D),transpose(ascsr(C.parent)),ascsr(B),ascsr(A),cache)
     D
 end
 
-function RAP!(D::SparseMatrixCSC{Tv,Ti},
+function rap!(D::SparseMatrixCSC{Tv,Ti},
               A::SparseMatrixCSC{Tv,Ti},
               B::SparseMatrixCSC{Tv,Ti},
               C::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
               α::Number,
               β::Number,
               cache) where {Tv,Ti<:Integer}
-    RAP!(ascsr(D),transpose(ascsr(C.parent)),ascsr(B),ascsr(A),α,β,cache)
+    rap!(ascsr(D),transpose(ascsr(C.parent)),ascsr(B),ascsr(A),α,β,cache)
     D
 end
