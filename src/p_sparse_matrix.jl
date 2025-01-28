@@ -2263,13 +2263,13 @@ function sparse_diag_matrix(::Type{T},d::PVector,shape) where T
 end
 
 ### OLD ###
-# function rap(R,A,P;reuse=Val(false))
-#     Ac = R*A*P
-#     if val_parameter(reuse)
-#         return Ac, nothing
-#     end
-#     Ac
-# end
+function rap(R,A,P;reuse=Val(false))
+    Ac = R*A*P
+    if val_parameter(reuse)
+        return Ac, nothing
+    end
+    Ac
+end
 
 ### NEW ###
 function rap(R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false))
@@ -2281,12 +2281,12 @@ function rap(R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false)
 end
 
 ### OLD ###
-# function rap!(Ac,R,A,P,cache)
-#     # TODO improve performance
-#     tmp = R*A*P
-#     copyto!(Ac,tmp)
-#     Ac
-# end
+function rap!(Ac,R,A,P,cache)
+    # TODO improve performance
+    tmp = R*A*P
+    copyto!(Ac,tmp)
+    Ac
+end
 
 ### NEW ###
 function rap!(Ac::PSparseMatrix,R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix,cache)
