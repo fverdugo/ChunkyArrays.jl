@@ -1,34 +1,52 @@
-function Base.:*(A::SparseMatrixCSR,B::SparseMatrixCSR)
-    C = ascsc(B)*ascsc(A)
+function matmul(A::SparseMatrixCSC,B::SparseMatrixCSC)
+    A*B
+end
+
+function matmul(A::Transpose{Tv,<:SparseMatrixCSC} where Tv,B::SparseMatrixCSC)
+    A*B
+end
+
+function matmul(A::SparseMatrixCSC,B::Transpose{Tv,<:SparseMatrixCSC} where Tv)
+    A*B
+end
+
+function matmul(A::Transpose{TvA,<:SparseMatrixCSC} where TvA,B::Transpose{TvB,<:SparseMatrixCSC} where TvB)
+    A*B
+end
+
+function matmul(A::SparseMatrixCSR,B::SparseMatrixCSR)
+    C = matmul(ascsc(B),ascsc(A))
     ascsr(C)
 end
 
-function Base.:*(At::Transpose{Tv,<:SparseMatrixCSR} where Tv,B::SparseMatrixCSR)
-    C = ascsc(B)*transpose(ascsc(At.parent))
+function matmul(At::Transpose{Tv,<:SparseMatrixCSR} where Tv,B::SparseMatrixCSR)
+    C = matmul(ascsc(B),transpose(ascsc(At.parent)))
     ascsr(C)
 end
 
-function Base.:*(A::SparseMatrixCSR,Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv)
+function matmul(A::SparseMatrixCSR,Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv)
     C = transpose(ascsc(Bt.parent))*ascsc(A)
     ascsr(C)
 end
 
-function Base.:*(At::Transpose{TvA,<:SparseMatrixCSR} where TvA,Bt::Transpose{TvB,<:SparseMatrixCSR} where TvB)
+function matmul(At::Transpose{TvA,<:SparseMatrixCSR} where TvA,Bt::Transpose{TvB,<:SparseMatrixCSR} where TvB)
     C = transpose(ascsc(Bt.parent))*transpose(ascsc(At.parent))
     ascsr(C)
 end
 
-function Base.:*(x::Number,A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
+function mul(x::Number,A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(A.colval), map(a -> x*a, A.nzval))
 end
-function Base.:*(A::SparseMatrixCSR,x::Number) *(x,A) end
 
-function Base.:/(A::SparseMatrixCSR{Bi,Tv,Ti},x::Number) where {Bi,Tv,Ti}
-    SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(A.colval), map(a -> a/x, A.nzval))
-end
+function mul(A::SparseMatrixCSR,x::Number) mul(x,A) end
+
+
+# function quotient(A::SparseMatrixCSR{Bi,Tv,Ti},x::Number) where {Bi,Tv,Ti}
+#     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(A.colval), map(a -> a/x, A.nzval))
+# end
 
 # Alternative to lazy csr to csc for matrix addition that does not drop structural zeros.
-function Base.:+(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) where {Bi,TvA,TvB,TiA,TiB}
+function add(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) where {Bi,TvA,TvB,TiA,TiB}
     if size(A) == size(B) || throw(DimensionMismatch("Size of B $(size(B)) must match size of A $(size(A))"));end
     Ti = promote_type(TiA,TiB)
     Tv = promote_type(TvA,TvB)
@@ -88,7 +106,7 @@ function Base.:+(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) 
 end
 
 # Alternative to lazy csr to csc for matrix subtraction that does not drop structural zeros. Subtracts B from A, i.e. A - B.
-function Base.:-(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) where {Bi,TvA,TvB,TiA,TiB}
+function subtract(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) where {Bi,TvA,TvB,TiA,TiB}
     if size(A) == size(B) || throw(DimensionMismatch("Size of B $(size(B)) must match size of A $(size(A))"));end
     Ti = promote_type(TiA,TiB)
     Tv = promote_type(TvA,TvB)
@@ -147,12 +165,12 @@ function Base.:-(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) 
     SparseMatrixCSR{Bi}(p,r,IC,JC,VC)   # A += B
 end
 
-function Base.:-(A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
+function subtract(A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(A.colval), map(a->-a, A.nzval))
 end
 
 # Alternative to lazy csr to csc for matrix addition that does not drop structural zeros.
-function Base.:+(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where {TvA,TvB,TiA,TiB}
+function add(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where {TvA,TvB,TiA,TiB}
     if size(A) != size(B) && throw(DimensionMismatch("Size of B $(size(B)) must match size of A $(size(A))"));end
     Ti = promote_type(TiA,TiB)
     Tv = promote_type(TvA,TvB)
@@ -212,7 +230,7 @@ function Base.:+(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where 
 end
 
 # Alternative to lazy csr to csc for matrix subtraction that does not drop structural zeros. Subtracts B from A, i.e. A - B.
-function Base.:-(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where {TvA,TvB,TiA,TiB}
+function subtract(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where {TvA,TvB,TiA,TiB}
     if size(A) == size(B) || throw(DimensionMismatch("Size of B $(size(B)) must match size of A $(size(A))"));end
     Ti = promote_type(TiA,TiB)
     Tv = promote_type(TvA,TvB)
@@ -271,33 +289,33 @@ function Base.:-(A::SparseMatrixCSC{TvA,TiA},B::SparseMatrixCSC{TvB,TiB}) where 
     SparseMatrixCSC{Tv,Ti}(p,q,JC,IC,VC)
 end
 
-function Base.:-(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function subtract(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     SparseMatrixCSC{Tv,Ti}(size(A)..., copy(A.colptr), copy(A.rowval), map(a->-a, A.nzval))
 end
 
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             A::SparseMatrixCSC,
                             B::SparseMatrixCSC,
                             cache)
-    mul!(ascsr(C),ascsr(B),ascsr(A),cache)
+    matmul!(ascsr(C),ascsr(B),ascsr(A),cache)
     C
 end
 
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             A::SparseMatrixCSC,
                             B::SparseMatrixCSC,
                             α::Number,
                             β::Number,
                             cache)
-    mul!(ascsr(C),ascsr(B),ascsr(A),α,β,cache)
+    matmul!(ascsr(C),ascsr(B),ascsr(A),α,β,cache)
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
-                            At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
-                            B::SparseMatrixCSC)
+function matmul!(C::SparseMatrixCSC,
+                 At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
+                 B::SparseMatrixCSC)
     a,b = size(C)
     p,q = size(At)
     r,s = size(B)
@@ -342,7 +360,7 @@ function LinearAlgebra.mul!(C::SparseMatrixCSC,
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC{Tv,Ti},
+function matmul!(C::SparseMatrixCSC{Tv,Ti},
                             At::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
                             B::SparseMatrixCSC{Tv,Ti},
                             α::Number,
@@ -389,14 +407,14 @@ function LinearAlgebra.mul!(C::SparseMatrixCSC{Tv,Ti},
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             A::SparseMatrixCSC,
                             Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv)
-    mul!(ascsr(C),transpose(ascsr(B)),ascsr(A))
+    matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A))
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             A::SparseMatrixCSR,
                             B::SparseMatrixCSR,
                             cache)
@@ -446,15 +464,15 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR,
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             A::SparseMatrixCSC,
                             Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
                             cache)
-    mul!(ascsr(C),transpose(ascsr(B)),ascsr(A),cache)
+    matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A),cache)
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             A::SparseMatrixCSR,
                             B::SparseMatrixCSR,
                             α::Number,
@@ -506,35 +524,35 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR,
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             A::SparseMatrixCSC,
                             Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
                             α::Number,
                             β::Number,
                             cache)
-    mul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A),α,β,cache)
+    matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A),α,β,cache)
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
                             B::SparseMatrixCSC,
                             cache)
-    mul!(ascsr(C),ascsr(B),transpose(ascsr(At.parent)))
+    matmul!(ascsr(C),ascsr(B),transpose(ascsr(At.parent)))
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSC,
+function matmul!(C::SparseMatrixCSC,
                             At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
                             B::SparseMatrixCSC,
                             α::Number,
                             β::Number,
                             cache)
-    mul!(ascsr(C),ascsr(A),transpose(ascsr(At.parent)),α,β)
+    matmul!(ascsr(C),ascsr(A),transpose(ascsr(At.parent)),α,β)
     C
 end
 
-# Workaround to supply in-place mul! with auxiliary array, as these are not returned by multiply function exported by SparseArrays
+# Workaround to supply in-place matmul with auxiliary array, as these are not returned by multiply function exported by SparseArrays
 function construct_spmm_cache(A::SparseMatrixCSR{Bi,Tv,Ti} where Bi) where {Tv,Ti}
     q = size(A,2)
     xb = zeros(Ti,q)
@@ -556,7 +574,7 @@ function construct_spmtm_cache(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     construct_spmtm_cache(ascsr(A))
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
                             B::SparseMatrixCSR,
                             cache)
@@ -599,7 +617,7 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR,
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
                             B::SparseMatrixCSR,
                             α::Number,
@@ -644,19 +662,19 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR,
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             A::SparseMatrixCSR,
                             Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv)
-    mul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A))
+    matmul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A))
     C
 end
 
-function LinearAlgebra.mul!(C::SparseMatrixCSR,
+function matmul!(C::SparseMatrixCSR,
                             A::SparseMatrixCSR,
                             Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv,
                             α::Number,
                             β::Number)
-    mul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A), α, β)
+    matmul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A), α, β)
     C
 end
 

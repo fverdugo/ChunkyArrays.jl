@@ -211,9 +211,13 @@ export near_nullspace_linear_elasticity
 export prolongator
 include("gallery.jl")
 
+export add
+export subtract
+export mul
+export matmul
+export matmul!
 export rap
 export rap!
-export -,+
 include("sequential_implementations.jl")
 
 end # module

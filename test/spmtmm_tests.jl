@@ -51,8 +51,8 @@ function parallel_tests(pA,pB,sparse_func)
     hp_B = halfperm(B)
     @test Bt == hp_B
 
-    AB0 = A*B
-    C0 = transpose(B)*AB0
+    AB0 = matmul(A,B)
+    C0 = matmul(transpose(B),AB0)
     # test basic sequential csr implementations to default csc sequential implementations.
     pAB,cacheAB = spmm(pA,pB,reuse=true)
     AB = centralize(sparse_func,pAB)
@@ -96,8 +96,8 @@ function parallel_tests(pA,pB,sparse_func)
 
     # unequal sizes backward (small to large)
     if size(pA) != size(pB)
-        CB0 = C0*Bt
-        D0 = transpose(Bt)*CB0
+        CB0 = matmul(C0,Bt)
+        D0 = matmul(transpose(Bt),CB0)
         pCB,cacheCB = spmm(pC,pBt,reuse=true)
         CB = centralize(sparse_func,pCB)
         @test approx_equivalent(CB,CB0)
