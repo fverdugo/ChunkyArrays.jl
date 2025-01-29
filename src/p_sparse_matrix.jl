@@ -2273,7 +2273,7 @@ end
 
 ### NEW ###
 function rap(R::PSparseMatrix,A::PSparseMatrix,P::PSparseMatrix;reuse=Val(false))
-    Ac, cache = spmmm(R,A,P)
+    Ac, cache = spmmm(R,A,P;reuse=true)
     if val_parameter(reuse)
         return Ac, cache
     end

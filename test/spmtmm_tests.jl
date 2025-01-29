@@ -3,6 +3,7 @@ using SparseMatricesCSR
 using PartitionedArrays
 using LinearAlgebra
 using Test
+using InteractiveUtils
 
 function approx_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSC,args...)
     if size(A) != size(B) && return false; end
@@ -132,28 +133,98 @@ function parallel_tests(pA,pB,sparse_func)
     end
 end
 
+function parallel_time(pA,pB,sparse_func)
+    A = centralize(sparse_func,pA)
+    B = centralize(sparse_func,pB)
+    # explicit parallel transpose
+    pBt = explicit_transpose(pB) |> fetch
+    Bt = centralize(sparse_func,pBt)
+    @test Bt == copy(transpose(B))
+    hp_B = halfperm(B)
+    @test Bt == hp_B
+
+    AB0 = A*B
+    C0 = transpose(B)*AB0
+    # test basic sequential csr implementations to default csc sequential implementations.
+    pAB,cacheAB = spmm(pA,pB,reuse=true)
+    print("spmm:\t")
+    @time spmm(pA,pB,reuse=true)
+    
+    # pB will be transposed internally
+    pC,cacheC = spmtm(pB,pAB,reuse=true)
+    print("spmtm:\t")
+    @time spmtm(pB,pAB,reuse=true)
+    spmm!(pAB,pA,pB,cacheAB)
+    print("spmm!:\t")
+    @time spmm!(pAB,pA,pB,cacheAB)
+    spmtm!(pC,pB,pAB,cacheC)
+    print("spmtm!:\t")
+    @time spmtm!(pC,pB,pAB,cacheC)
+    # pC,cacheC = spmtmm(pA,pB)
+    pC,cacheC = spmtmm(pB,pA,pB,reuse=true)
+    print("spmtmm:\t")
+    # @time spmtmm(pA,pB)
+    @time spmtmm(pB,pA,pB,reuse=true)
+    # spmtmm!(pC,pA,pB,cacheC)
+    spmtmm!(pC,pB,pA,pB,cacheC)
+    print("spmtmm!:")
+    # @time spmtmm!(pC,pA,pB,cacheC)
+    @time spmtmm!(pC,pB,pA,pB,cacheC)
+    pC,cacheC = spmm(pBt,pAB,reuse=true)
+    print("spmm:\t")
+    @time spmm(pBt,pAB,reuse=true)
+    spmm!(pC,pBt,pAB,cacheC)
+    print("spmm!:\t")
+    @time spmm!(pC,pBt,pAB,cacheC)
+
+    # pB will be transposed internally
+    pC,cacheC = spmmm(pBt,pA,pB,reuse=true)
+    print("spmmm: ")
+    @time spmmm(pBt,pA,pB,reuse=true)
+    spmmm!(pC,pBt,pA,pB,cacheC)
+    print("spmmm!:")
+    @time spmmm!(pC,pBt,pA,pB,cacheC)
+
+    # @code_warntype spmmm!(pC,pBt,pA,pB,cacheC)
+    print("Local SpMM:\t")
+    C = A*B
+    @time C = A*B
+    X,cache = rap(Bt,A,B)
+    print("RAP:\t")
+    @time rap(Bt,A,B)
+    rap!(X,Bt,A,B,cache)
+    print("RAP!:\t")
+    @time rap!(X,Bt,A,B,cache)
+end
+
+function Base.display(A::SparseMatrixCSR)
+    display(halfperm(A) |> PartitionedArrays.ascsc)
+end
+
 function spmtmm_tests(distribute)
     nodes_per_dir = (5,5,5)
     parts_per_dir = (1,2,2)
     np = prod(parts_per_dir)
     ranks = distribute(LinearIndices((np,)))
-    Ti = Int32
-    pA = psparse(sparsecsr,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = Ti)...) |> fetch
-    pB = pA
-    parallel_tests(pA,pB,sparsecsr)
+    for (TiA,TiB,TvA,TvB) in [(Int32,Int32,Float32,Float32),(Int32,Int64,Float32,Float32),(Int32,Int32,Float32,Float64),(Int32,Int64,Float32,Float64),(Int32,Int64,Int64,Int64),(Int32,Int64,Int64,Float32),(Int32,Int64,Float64,Int32)]
+        pA = psparse(sparsecsr,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks;index_type=TiA,value_type=TvA)...) |> fetch
+        pB = psparse(sparsecsr,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks;index_type=TiB,value_type=TvB)...) |> fetch
 
-    # Testing with a real prolongator requires PartitionedSolvers
-    # T = eltype(typeof(own_own_values(pA).items))
-    # pB = prolongator(T,pA)
-    # parallel_tests(pA,pB,sparsecsr)
-    
-    #### CSC ####
-    pA = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = Ti)...) |> fetch
-    pB = pA
-    parallel_tests(pA,pB,sparse)
-    
-    # Testing with a real prolongator requires PartitionedSolvers
-    # T = eltype(typeof(own_own_values(pA).items))
-    # pB = prolongator(T,pA)
-    # parallel_tests(pA,pB,sparse)
+        parallel_tests(pA,pB,sparsecsr)
+        # Testing with a real prolongator requires PartitionedSolvers
+        # T = eltype(typeof(own_own_values(pA).items))
+        # pB = prolongator(T,pA)
+        # parallel_tests(pA,pB,sparsecsr)
+        
+        #### CSC ####
+        pA = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = TiA, value_type=TvA)...) |> fetch
+        pB = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = TiB, value_type=TvB)...) |> fetch
+
+        parallel_tests(pA,pB,sparse)
+        # Testing with a real prolongator requires PartitionedSolvers
+        # T = eltype(typeof(own_own_values(pA).items))
+        # pB = prolongator(T,pA)
+        # parallel_tests(pA,pB,sparse)
+        # break
+    end
 end
