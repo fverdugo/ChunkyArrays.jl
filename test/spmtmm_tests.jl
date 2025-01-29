@@ -3,7 +3,6 @@ using SparseMatricesCSR
 using PartitionedArrays
 using LinearAlgebra
 using Test
-using InteractiveUtils
 
 function approx_equivalent(A::SparseMatrixCSC, B::SparseMatrixCSC,args...)
     if size(A) != size(B) && return false; end
@@ -209,8 +208,8 @@ function spmtmm_tests(distribute)
     for (TiA,TiB,TvA,TvB) in [(Int32,Int32,Float32,Float32),(Int32,Int64,Float32,Float32),(Int32,Int32,Float32,Float64),(Int32,Int64,Float32,Float64),(Int32,Int64,Int64,Int64),(Int32,Int64,Int64,Float32),(Int32,Int64,Float64,Int32)]
         pA = psparse(sparsecsr,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks;index_type=TiA,value_type=TvA)...) |> fetch
         pB = psparse(sparsecsr,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks;index_type=TiB,value_type=TvB)...) |> fetch
-
         parallel_tests(pA,pB,sparsecsr)
+        
         # Testing with a real prolongator requires PartitionedSolvers
         # T = eltype(typeof(own_own_values(pA).items))
         # pB = prolongator(T,pA)
@@ -219,8 +218,8 @@ function spmtmm_tests(distribute)
         #### CSC ####
         pA = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = TiA, value_type=TvA)...) |> fetch
         pB = psparse(sparse,laplacian_fdm(nodes_per_dir,parts_per_dir,ranks; index_type = TiB, value_type=TvB)...) |> fetch
-
         parallel_tests(pA,pB,sparse)
+        
         # Testing with a real prolongator requires PartitionedSolvers
         # T = eltype(typeof(own_own_values(pA).items))
         # pB = prolongator(T,pA)
