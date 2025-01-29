@@ -660,6 +660,17 @@ function LinearAlgebra.mul!(C::SparseMatrixCSR,
     C
 end
 
+function rap(A::Union{Transpose{TA,<:AbstractSparseMatrix},<:AbstractSparseMatrix} where TA,
+             B::M where M<:AbstractSparseMatrix,
+             C::Union{Transpose{TC,<:AbstractSparseMatrix},<:AbstractSparseMatrix} where TC
+             ;reuse=Val(true))
+    D,cache = rap(A,B,C)
+    if val_parameter(reuse)
+        return D,cache
+    end
+    D
+end
+
 # PtAP variants
 function rap(Rt::Transpose{TvR,SparseMatrixCSR{Bi,TvR,TiR}},
              A::SparseMatrixCSR{Bi,TvA,TiA},
