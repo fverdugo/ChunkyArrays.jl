@@ -1,16 +1,5 @@
-function matmul(A::SparseMatrixCSC,B::SparseMatrixCSC)
-    A*B
-end
-
-function matmul(A::Transpose{Tv,<:SparseMatrixCSC} where Tv,B::SparseMatrixCSC)
-    A*B
-end
-
-function matmul(A::SparseMatrixCSC,B::Transpose{Tv,<:SparseMatrixCSC} where Tv)
-    A*B
-end
-
-function matmul(A::Transpose{TvA,<:SparseMatrixCSC} where TvA,B::Transpose{TvB,<:SparseMatrixCSC} where TvB)
+function matmul(A::Union{Transpose{TvA,<:SparseMatrixCSC},<:SparseMatrixCSC} where TvA,
+                B::Union{Transpose{TvB,<:SparseMatrixCSC},<:SparseMatrixCSC} where TvB)
     A*B
 end
 
@@ -39,11 +28,6 @@ function mul(x::Number,A::SparseMatrixCSR{Bi,Tv,Ti}) where {Bi,Tv,Ti}
 end
 
 function mul(A::SparseMatrixCSR,x::Number) mul(x,A) end
-
-
-# function quotient(A::SparseMatrixCSR{Bi,Tv,Ti},x::Number) where {Bi,Tv,Ti}
-#     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(A.colval), map(a -> a/x, A.nzval))
-# end
 
 # Alternative to lazy csr to csc for matrix addition that does not drop structural zeros.
 function add(A::SparseMatrixCSR{Bi,TvA,TiA},B::SparseMatrixCSR{Bi,TvB,TiB}) where {Bi,TvA,TvB,TiA,TiB}
@@ -293,22 +277,20 @@ function subtract(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     SparseMatrixCSC{Tv,Ti}(size(A)..., copy(A.colptr), copy(A.rowval), map(a->-a, A.nzval))
 end
 
-
 function matmul!(C::SparseMatrixCSC,
-                            A::SparseMatrixCSC,
-                            B::SparseMatrixCSC,
-                            cache)
+                 A::SparseMatrixCSC,
+                 B::SparseMatrixCSC,
+                 cache)
     matmul!(ascsr(C),ascsr(B),ascsr(A),cache)
     C
 end
 
-
 function matmul!(C::SparseMatrixCSC,
-                            A::SparseMatrixCSC,
-                            B::SparseMatrixCSC,
-                            α::Number,
-                            β::Number,
-                            cache)
+                 A::SparseMatrixCSC,
+                 B::SparseMatrixCSC,
+                 α::Number,
+                 β::Number,
+                 cache)
     matmul!(ascsr(C),ascsr(B),ascsr(A),α,β,cache)
     C
 end
@@ -361,10 +343,10 @@ function matmul!(C::SparseMatrixCSC,
 end
 
 function matmul!(C::SparseMatrixCSC{Tv,Ti},
-                            At::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
-                            B::SparseMatrixCSC{Tv,Ti},
-                            α::Number,
-                            β::Number) where {Tv,Ti}
+                 At::Transpose{Tv,SparseMatrixCSC{Tv,Ti}},
+                 B::SparseMatrixCSC{Tv,Ti},
+                 α::Number,
+                 β::Number) where {Tv,Ti}
     a,b = size(C)
     p,q = size(At)
     r,s = size(B)
@@ -408,16 +390,16 @@ function matmul!(C::SparseMatrixCSC{Tv,Ti},
 end
 
 function matmul!(C::SparseMatrixCSC,
-                            A::SparseMatrixCSC,
-                            Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv)
+                 A::SparseMatrixCSC,
+                 Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv)
     matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A))
     C
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            A::SparseMatrixCSR,
-                            B::SparseMatrixCSR,
-                            cache)
+                 A::SparseMatrixCSR,
+                 B::SparseMatrixCSR,
+                 cache)
     a,b = size(C)
     p,q = size(A)
     r,s = size(B)
@@ -465,19 +447,19 @@ function matmul!(C::SparseMatrixCSR,
 end
 
 function matmul!(C::SparseMatrixCSC,
-                            A::SparseMatrixCSC,
-                            Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
-                            cache)
+                 A::SparseMatrixCSC,
+                 Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
+                 cache)
     matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A),cache)
     C
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            A::SparseMatrixCSR,
-                            B::SparseMatrixCSR,
-                            α::Number,
-                            β::Number,
-                            cache)
+                 A::SparseMatrixCSR,
+                 B::SparseMatrixCSR,
+                 α::Number,
+                 β::Number,
+                 cache)
     a,b = size(C)
     p,q = size(A)
     r,s = size(B)
@@ -525,29 +507,29 @@ function matmul!(C::SparseMatrixCSR,
 end
 
 function matmul!(C::SparseMatrixCSC,
-                            A::SparseMatrixCSC,
-                            Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
-                            α::Number,
-                            β::Number,
-                            cache)
+                 A::SparseMatrixCSC,
+                 Bt::Transpose{Tv,<:SparseMatrixCSC} where Tv,
+                 α::Number,
+                 β::Number,
+                 cache)
     matmul!(ascsr(C),transpose(ascsr(Bt.parent)),ascsr(A),α,β,cache)
     C
 end
 
 function matmul!(C::SparseMatrixCSC,
-                            At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
-                            B::SparseMatrixCSC,
-                            cache)
+                 At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
+                 B::SparseMatrixCSC,
+                 cache)
     matmul!(ascsr(C),ascsr(B),transpose(ascsr(At.parent)))
     C
 end
 
 function matmul!(C::SparseMatrixCSC,
-                            At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
-                            B::SparseMatrixCSC,
-                            α::Number,
-                            β::Number,
-                            cache)
+                 At::Transpose{Tv,<:SparseMatrixCSC} where Tv,
+                 B::SparseMatrixCSC,
+                 α::Number,
+                 β::Number,
+                 cache)
     matmul!(ascsr(C),ascsr(A),transpose(ascsr(At.parent)),α,β)
     C
 end
@@ -575,9 +557,9 @@ function construct_spmtm_cache(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
-                            B::SparseMatrixCSR,
-                            cache)
+                 At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
+                 B::SparseMatrixCSR,
+                 cache)
     a,b = size(C)
     p,q = size(At)
     r,s = size(B)
@@ -618,11 +600,11 @@ function matmul!(C::SparseMatrixCSR,
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
-                            B::SparseMatrixCSR,
-                            α::Number,
-                            β::Number,
-                            cache)
+                 At::Transpose{Tv,<:SparseMatrixCSR} where Tv,
+                 B::SparseMatrixCSR,
+                 α::Number,
+                 β::Number,
+                 cache)
     a,b = size(C)
     p,q = size(At)
     r,s = size(B)
@@ -663,17 +645,17 @@ function matmul!(C::SparseMatrixCSR,
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            A::SparseMatrixCSR,
-                            Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv)
+                 A::SparseMatrixCSR,
+                 Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv)
     matmul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A))
     C
 end
 
 function matmul!(C::SparseMatrixCSR,
-                            A::SparseMatrixCSR,
-                            Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv,
-                            α::Number,
-                            β::Number)
+                 A::SparseMatrixCSR,
+                 Bt::Transpose{Tv,<:SparseMatrixCSR} where Tv,
+                 α::Number,
+                 β::Number)
     matmul!(ascsc(C), transpose(ascsc(Bt.parent)), ascsc(A), α, β)
     C
 end
@@ -1167,15 +1149,6 @@ function rap(R::SparseMatrixCSR{Bi,TvR,TiR},
         C,cache
     end
     _rap(R,A,P)
-end
-
-# Reuses internal arrays of A!!!
-function construct_spmmm_cache(C::SparseMatrixCSR,A::SparseMatrixCSR)
-    cache = JaggedArray(colvals(A), A.rowptr)
-end
-
-function construct_spmmm_cache(C::SparseMatrixCSC,A::SparseMatrixCSC)
-    cache = JaggedArray(rowvals(A), A.colptr)
 end
 
 function reduce_spmtmm_cache(cache,::Type{M} where M <: SparseMatrixCSR)

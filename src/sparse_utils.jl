@@ -725,38 +725,37 @@ function precompute_nzindex(C::AbstractSparseArray,A::AbstractSparseArray)
     K
 end
 
-function expand_sparse_matrix_columns(A::SparseMatrixCSR{Bi,Tv,Ti} where {Tv, Ti}, n) where Bi
-    p,q = size(A)
-    @assert n >= q
-    SparseMatrixCSR{Bi}(p,n,A.rowptr,A.colval,A.nzval)
+function expand_sparse_matrix(A::SparseMatrixCSR{Bi,Tv,Ti} where {Tv, Ti},m,n) where Bi
+    p = size(A,1)
+    new_rowptr = similar(A.rowptr,m+1)
+    map!(identity,new_rowptr,A.rowptr)
+    last_index = A.colptr[end]
+    for i in p+1:m+1
+        new_colptr[i] = last_index
+    end
+    SparseMatrixCSR{Bi}(m,n,A.new_rowptr,A.colval,A.nzval)
 end
 
-function expand_sparse_matrix_columns(A::SparseMatrixCSC{Tv,Ti}, n) where {Tv,Ti}
-    p,q = size(A)
-    @assert n >= q
+function expand_sparse_matrix(A::SparseMatrixCSC{Tv,Ti},m,n) where {Tv,Ti}
+    q = size(A,2)
     new_colptr = similar(A.colptr,n+1)
     map!(identity,new_colptr,A.colptr)
     last_index = A.colptr[end]
-    foreach(q+1:n+1) do i
-        new_colptr[i] = last_index
+    for j in q+1:n+1
+        new_colptr[j] = last_index
     end
-    SparseMatrixCSC{Tv,Ti}(p,n,new_colptr,A.rowval,A.nzval)
+    SparseMatrixCSC{Tv,Ti}(m,n,new_colptr,A.rowval,A.nzval)
 end
 
-# Currently not implemented by the SparseMatricesCSR module
+# Currently not implemented by the SparseMatricesCSR package
 function Base.similar(A::SparseMatrixCSR{Bi}, m::Integer, n::Integer) where Bi
     SparseMatrixCSR{1}(m, n, ones(eltype(A.rowptr), m+1), eltype(A.colval)[], eltype(A.nzval)[])
 end
 
-# Currently not implemented by the SparseMatricesCSR module
+# Currently not implemented by SparseMatricesCSR
 function Base.similar(A::SparseMatrixCSR{Bi}) where Bi
     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(colvals(A)), similar(nonzeros(A)))
 end
-
-# This method is implemented also by SparseMatricesCSR, but related methods aren't.
-# function Base.copy(A::SparseMatrixCSR{Bi}) where Bi
-#     SparseMatrixCSR{Bi}(size(A)..., copy(A.rowptr), copy(colvals(A)), copy(nonzeros(A)))
-# end
 
 # Currently not implemented by the SparseMatricesCSR module
 function Base.copy(At::Transpose{Tv,SparseMatrixCSR{Bi,Tv,Ti}} where {Bi,Tv,Ti})

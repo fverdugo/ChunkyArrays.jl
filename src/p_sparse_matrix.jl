@@ -1964,12 +1964,13 @@ function psparse_consistent_impl(A::PSparseMatrix{V,B,C,D,Tv} where {V,B,C,D},
         map_global_to_own!(J_rcv_own,cols_co)
         map_global_to_ghost!(J_rcv_ghost,cols_co)
         n_ghost_rows = ghost_length(rows_co)
+        n_own_rows = own_length(rows_co)
         n_own_cols = own_length(cols_co)
         n_ghost_cols = ghost_length(cols_co)
         TA = typeof(A.blocks.ghost_own)
         own_own = A.blocks.own_own
-        # New own_ghost shares as much memory with existing own_ghost block as possible. Extent depends on sparse format in use.
-        own_ghost = expand_sparse_matrix_columns(A.blocks.own_ghost,n_ghost_cols) 
+        # New own_ghost shares index and value arrays with existing own_ghost block. Pointer arrays are newly allocated (in case of CSC and CSR).
+        own_ghost = expand_sparse_matrix(A.blocks.own_ghost,n_own_rows,n_ghost_cols)
         ghost_own = compresscoo(TA,I_rcv_own,J_rcv_own,V_rcv_own,n_ghost_rows,n_own_cols)
         ghost_ghost = compresscoo(TA,I_rcv_ghost,J_rcv_ghost,V_rcv_ghost,n_ghost_rows,n_ghost_cols)
         K_own = precompute_nzindex(ghost_own,I_rcv_own,J_rcv_own)
@@ -2326,82 +2327,81 @@ function spmm!(C,A,B,state)
 end
 
 ### OLD ###
-# function spmm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
-#     # TODO latency hiding
-#     @assert A.assembled
-#     @assert B.assembled
-#     col_partition = partition(axes(A,2))
-#     C,cacheC = consistent(B,col_partition;reuse=true) |> fetch
-#     D_partition,cacheD = map((args...)->spmm(args...;reuse=true),partition(A),partition(C)) |> tuple_of_arrays
-#     assembled = true
-#     D = PSparseMatrix(D_partition,partition(axes(A,1)),partition(axes(C,2)),assembled)
-#     if val_parameter(reuse)
-#         cache = (C,cacheC,cacheD)
-#         return D,cache
-#     end
-#     D
-# end
-
-# function spmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
-#     (C,cacheC,cacheD)= cache
-#     consistent!(C,B,cacheC) |> wait
-#     map(spmm!,partition(D),partition(A),partition(C),cacheD)
-#     D
-# end
-
-### NEW ###
 function spmm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
+    # TODO latency hiding
     @assert A.assembled
     @assert B.assembled
-    t = consistent(B,partition(axes(A,2)),reuse=true)
-    A_own_own = own_own_values(A)
-    A_own_ghost = own_ghost_values(A)
-
-    C_own_own_1 = map(matmul,A_own_own,own_own_values(B))
-    
-    # Wait for consistent
-    B2, cacheB2 = fetch(t)
-    C_own_ghost_1 = map(matmul,A_own_own,own_ghost_values(B2))
-    C_own_own_2 = map(matmul,A_own_ghost,ghost_own_values(B2))
-    C_own_ghost_2 = map(matmul,A_own_ghost,ghost_ghost_values(B2))
-    
-    C_own_own = map(add, C_own_own_1, C_own_own_2)
-    C_own_ghost = map(add, C_own_ghost_1, C_own_ghost_2)
-    
-    Coo_cache = map(construct_spmm_cache, C_own_own)
-    Cog_cache = map(construct_spmm_cache, C_own_ghost)
-    
-    C_values = map(C_own_own,C_own_ghost,partition(A),partition(B2)) do own_own,own_ghost,A_part,B_part
-        ghost_own = similar(own_own,0,size(own_own,2))
-        ghost_ghost = similar(own_own,0,size(own_ghost,2))
-        blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
-        split_matrix(blocks,A_part.row_permutation,B_part.col_permutation)
-    end
-    
-    C = PSparseMatrix(C_values,partition(axes(A,1)),partition(axes(B2,2)),true)
+    col_partition = partition(axes(A,2))
+    C,cacheC = consistent(B,col_partition;reuse=true) |> fetch
+    D_partition,cacheD = map((args...)->spmm(args...;reuse=true),partition(A),partition(C)) |> tuple_of_arrays
+    assembled = true
+    D = PSparseMatrix(D_partition,partition(axes(A,1)),partition(axes(C,2)),assembled)
     if val_parameter(reuse)
-        cache = (B2,cacheB2,(Coo_cache,Cog_cache))
-        return C,cache
+        cache = (C,cacheC,cacheD)
+        return D,cache
     end
-    C
+    D
 end
 
-function spmm!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
-    (B2,cacheB2,(Coo_cache,Cog_cache)) = cache
-    t = consistent!(B2,B,cacheB2)
-    A_own_own = own_own_values(A)
-    A_own_ghost = own_ghost_values(A)
-    C_own_own = own_own_values(C)
-    C_own_ghost = own_ghost_values(C)
-
-    map(matmul!, C_own_own, A_own_own, own_own_values(B),Coo_cache)
-    wait(t)
-    map(matmul!, C_own_ghost, A_own_own, own_ghost_values(B2),Cog_cache)
-
-    map((C,A,B,cache) -> matmul!(C,A,B,1,1,cache), C_own_own,A_own_ghost,ghost_own_values(B2),Coo_cache)
-    map((C,A,B,cache) -> matmul!(C,A,B,1,1,cache), C_own_ghost,A_own_ghost,ghost_ghost_values(B2),Cog_cache)
-    C
+function spmm!(D::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+    (C,cacheC,cacheD)= cache
+    consistent!(C,B,cacheC) |> wait
+    map(spmm!,partition(D),partition(A),partition(C),cacheD)
+    D
 end
+
+### NEW ###
+# function spmm(A::PSparseMatrix,B::PSparseMatrix;reuse=Val(false))
+#     @assert A.assembled
+#     @assert B.assembled
+#     t = consistent(B,partition(axes(A,2)),reuse=true)
+#     A_own_own = own_own_values(A)
+#     A_own_ghost = own_ghost_values(A)
+#     C_own_own_1 = map(matmul,A_own_own,own_own_values(B))
+
+#     # Wait for consistent
+#     B2, cacheB2 = fetch(t)
+#     C_own_ghost_1 = map(matmul,A_own_own,own_ghost_values(B2))
+#     C_own_own_2 = map(matmul,A_own_ghost,ghost_own_values(B2))
+#     C_own_ghost_2 = map(matmul,A_own_ghost,ghost_ghost_values(B2))
+    
+#     C_own_own = map(add, C_own_own_1, C_own_own_2)
+#     C_own_ghost = map(add, C_own_ghost_1, C_own_ghost_2)
+    
+#     Coo_cache = map(construct_spmm_cache, C_own_own)
+#     Cog_cache = map(construct_spmm_cache, C_own_ghost)
+    
+#     C_values = map(C_own_own,C_own_ghost,partition(A),partition(B2)) do own_own,own_ghost,A_part,B_part
+#         ghost_own = similar(own_own,0,size(own_own,2))
+#         ghost_ghost = similar(own_own,0,size(own_ghost,2))
+#         blocks = split_matrix_blocks(own_own,own_ghost,ghost_own,ghost_ghost)
+#         split_matrix(blocks,A_part.row_permutation,B_part.col_permutation)
+#     end
+    
+#     C = PSparseMatrix(C_values,partition(axes(A,1)),partition(axes(B2,2)),true)
+#     if val_parameter(reuse)
+#         cache = (B2,cacheB2,(Coo_cache,Cog_cache))
+#         return C,cache
+#     end
+#     C
+# end
+
+# function spmm!(C::PSparseMatrix,A::PSparseMatrix,B::PSparseMatrix,cache)
+#     (B2,cacheB2,(Coo_cache,Cog_cache)) = cache
+#     t = consistent!(B2,B,cacheB2)
+#     A_own_own = own_own_values(A)
+#     A_own_ghost = own_ghost_values(A)
+#     C_own_own = own_own_values(C)
+#     C_own_ghost = own_ghost_values(C)
+
+#     map(matmul!,C_own_own,A_own_own,own_own_values(B),Coo_cache)
+#     wait(t)
+#     map(matmul!,C_own_ghost,A_own_own,own_ghost_values(B2),Cog_cache)
+
+#     map((C,A,B,cache)->matmul!(C,A,B,1,1,cache),C_own_own,A_own_ghost,ghost_own_values(B2),Coo_cache)
+#     map((C,A,B,cache)->matmul!(C,A,B,1,1,cache),C_own_ghost,A_own_ghost,ghost_ghost_values(B2),Cog_cache)
+#     C
+# end
 ### End NEW ###
 
 function spmtm(A,B;reuse=Val(false))
