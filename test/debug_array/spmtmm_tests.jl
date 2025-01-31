@@ -6,14 +6,24 @@ using Test
 include(joinpath("..","spmtmm_tests.jl"))
 
 v = 1:5
-M = sparse(v,v,v)
-Z = subtract(M,M)
-@test nnz(Z) == nnz(M)
+A = sparse(v,v,v)
+Z = subtract(A,A)
+@test nnz(Z) == nnz(A)
 display(Z)
 
-M = sparsecsr(v,v,v)
-Z = subtract(M,M)
-@test nnz(Z) == nnz(M)
+B = sparse(v,v,-v)
+Z = add(A,B)
+@test nnz(Z) == nnz(A)
+display(Z)
+
+A = sparsecsr(v,v,v)
+Z = subtract(A,A)
+@test nnz(Z) == nnz(A)
+display(Z)
+
+B = sparsecsr(v,v,-v)
+Z = add(A,B)
+@test nnz(Z) == nnz(A)
 display(Z)
 
 with_debug(spmtmm_tests)

@@ -688,8 +688,8 @@ function spmv_csc!(b,x,colptr_A,rowval_A,nzval_A)
     b
 end
 
-################ NEW ################
 
+################ NEW ################
 # Variants for findnz() that only allocates memory for the conversion of the pointer array to an index array.
 # Only use for read-only operations.
 function findnz_minimal(A::SparseMatrixCSC)
@@ -725,24 +725,45 @@ function precompute_nzindex(C::AbstractSparseArray,A::AbstractSparseArray)
     K
 end
 
-function expand_sparse_matrix(A::SparseMatrixCSR{Bi,Tv,Ti} where {Tv, Ti},m,n) where Bi
-    p = size(A,1)
-    new_rowptr = similar(A.rowptr,m+1)
-    map!(identity,new_rowptr,A.rowptr)
-    last_index = A.colptr[end]
-    for i in p+1:m+1
-        new_colptr[i] = last_index
-    end
-    SparseMatrixCSR{Bi}(m,n,A.new_rowptr,A.colval,A.nzval)
+# General matrix expansion to a larger size, allocates new matrix with new size.
+function expand_sparse_matrix(A,m,n)
+    compresscoo(typeof(A),findnz(A)...,m,n)
 end
 
+# Expand matrix to a larger size without changing non-zero entries. 
+# Might allocate a new pointer array, but shares index and value arrays with A.
+function expand_sparse_matrix(A::SparseMatrixCSR{Bi,Tv,Ti} where {Tv, Ti},m,n) where Bi
+    p,q = size(A)
+    @assert m >= p
+    @assert n >= q
+    if m > p
+        new_rowptr = similar(A.rowptr,m+1)
+        map!(identity,new_rowptr,A.rowptr)
+        last_index = A.rowptr[end]
+        for i in p+1:m+1
+            new_rowptr[i] = last_index
+        end
+    else
+        new_rowptr = A.rowptr
+    end
+    SparseMatrixCSR{Bi}(m,n,new_rowptr,A.colval,A.nzval)
+end
+
+# Expand matrix to a larger size without changing non-zero entries. 
+# Might allocate a new pointer array, but shares index and value arrays with A.
 function expand_sparse_matrix(A::SparseMatrixCSC{Tv,Ti},m,n) where {Tv,Ti}
-    q = size(A,2)
-    new_colptr = similar(A.colptr,n+1)
-    map!(identity,new_colptr,A.colptr)
-    last_index = A.colptr[end]
-    for j in q+1:n+1
-        new_colptr[j] = last_index
+    p,q = size(A)
+    @assert m >= p
+    @assert n >= q
+    if n > q
+        new_colptr = similar(A.colptr,n+1)
+        map!(identity,new_colptr,A.colptr)
+        last_index = A.colptr[end]
+        for j in q+1:n+1
+            new_colptr[j] = last_index
+        end
+    else
+        new_colptr = A.colptr
     end
     SparseMatrixCSC{Tv,Ti}(m,n,new_colptr,A.rowval,A.nzval)
 end
@@ -972,5 +993,3 @@ function symbolic_halfperm!(A::SparseMatrixCSC,At::JaggedArray)
     symbolic_halfperm!(ascsr(A),At)
     A
 end
-
-
